@@ -1,0 +1,52 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ReportReason {
+  HARASSMENT
+  SEXUAL_CONTENT
+  SPAM
+  SCAM
+  HATE
+  OTHER
+}
+
+model Guest {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  reports   Report[] @relation("Reporter")
+  reported  Report[] @relation("Reported")
+  blocks    Block[]  @relation("Blocker")
+  blockedBy Block[]  @relation("Blocked")
+}
+
+model Report {
+  id          String       @id @default(cuid())
+  reporterId  String
+  reportedId  String?
+  reason      ReportReason
+  details     String?
+  createdAt   DateTime     @default(now())
+
+  reporter Guest  @relation("Reporter", fields: [reporterId], references: [id])
+  reported Guest? @relation("Reported", fields: [reportedId], references: [id])
+
+  @@index([reportedId, createdAt])
+}
+
+model Block {
+  id        String   @id @default(cuid())
+  blockerId String
+  blockedId String
+  createdAt DateTime @default(now())
+
+  blocker Guest @relation("Blocker", fields: [blockerId], references: [id])
+  blocked Guest @relation("Blocked", fields: [blockedId], references: [id])
+
+  @@unique([blockerId, blockedId])
+}

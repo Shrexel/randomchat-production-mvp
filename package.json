@@ -1,0 +1,12 @@
+{
+  "name": "randomchat",
+  "private": true,
+  "scripts": {
+    "dev:web": "npm --prefix apps/web run dev",
+    "dev:server": "npm --prefix apps/server run dev",
+    "build:web": "npm --prefix apps/web run build",
+    "build:server": "npm --prefix apps/server run build",
+    "db:migrate": "npm --prefix apps/server run db:migrate",
+    "db:generate": "npm --prefix apps/server run db:generate"
+  }
+}
