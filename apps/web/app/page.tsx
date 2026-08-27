@@ -5,12 +5,8 @@ import { useRouter } from "next/navigation";
 export default function Home() {
   const router = useRouter();
 
-  const startChat = (type: "text" | "video") => {
-    if (type === "text") {
-      router.push("/text");
-    } else {
-      router.push("/video");
-    }
+  const startTextChat = () => {
+    router.push("/text");
   };
 
   return (
@@ -28,7 +24,7 @@ export default function Home() {
           </span>
 
           <span className="text-sm text-gray-500 font-bold">
-            12,402 online
+            Text Chat Available
           </span>
         </div>
       </header>
@@ -74,23 +70,31 @@ export default function Home() {
 
             {/* Text Chat Button */}
             <button
-              onClick={() => startChat("text")}
+              onClick={startTextChat}
               className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-xl font-bold py-8 px-4 rounded-2xl shadow-lg transition-transform transform hover:-translate-y-1 hover:shadow-xl flex flex-col items-center gap-2"
             >
               <span className="text-3xl">💬</span>
-              Text
+              Text Chat
             </button>
 
-            {/* Video Chat Button */}
+            {/* Locked Video Chat Button */}
             <button
-              onClick={() => startChat("video")}
-              className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white text-xl font-bold py-8 px-4 rounded-2xl shadow-lg transition-transform transform hover:-translate-y-1 hover:shadow-xl flex flex-col items-center gap-2"
+              disabled
+              className="flex-1 bg-gray-300 text-gray-500 text-xl font-bold py-8 px-4 rounded-2xl shadow-lg flex flex-col items-center gap-2 cursor-not-allowed opacity-80"
             >
-              <span className="text-3xl">📹</span>
-              Video
+              <span className="text-3xl">🔒</span>
+              Video Chat
+
+              <span className="text-sm font-medium">
+                Coming Soon
+              </span>
             </button>
 
           </div>
+
+          <p className="text-sm text-gray-500 text-center">
+            Video chat is currently under development.
+          </p>
         </div>
       </div>
 
