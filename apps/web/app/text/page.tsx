@@ -12,6 +12,8 @@ import {
   Socket,
 } from "socket.io-client";
 
+import ThemeToggle from "@/components/ThemeToggle";
+
 type Message = {
   text: string;
   sender: "me" | "stranger";
@@ -48,6 +50,9 @@ export default function TextChatPage() {
       typeof setTimeout
     > | null>(null);
 
+  const messagesEndRef =
+    useRef<HTMLDivElement | null>(null);
+
   const [connected, setConnected] =
     useState(false);
 
@@ -78,6 +83,15 @@ export default function TextChatPage() {
       "HARASSMENT"
     );
 
+  const [sameCountry, setSameCountry] =
+    useState(false);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({
+      behavior: "smooth",
+    });
+  }, [messages]);
+
   useEffect(() => {
     let guestId =
       localStorage.getItem(
@@ -93,8 +107,12 @@ export default function TextChatPage() {
       );
     }
 
+    const socketUrl =
+      process.env.NEXT_PUBLIC_SOCKET_URL ||
+      "http://localhost:4000";
+
     const socket = io(
-      "http://localhost:4000",
+      socketUrl,
       {
         auth: {
           guestId,
@@ -351,7 +369,8 @@ export default function TextChatPage() {
     );
 
     socketRef.current.emit(
-      "find-partner"
+      "find-partner",
+      { sameCountry }
     );
   };
 
@@ -379,9 +398,7 @@ export default function TextChatPage() {
       isTyping: true,
     });
 
-    if (
-      typingTimeoutRef.current
-    ) {
+    if (typingTimeoutRef.current) {
       clearTimeout(
         typingTimeoutRef.current
       );
@@ -407,16 +424,29 @@ export default function TextChatPage() {
   };
 
   const sendMessage = () => {
-    const text = message.trim();
-
     if (
-      !text ||
       !socketRef.current?.connected ||
       !matched ||
-      !partnerSocketIdRef.current
+      !partnerSocketIdRef.current ||
+      !message.trim()
     ) {
       return;
     }
+
+    const text = message.trim();
+
+    if (typingTimeoutRef.current) {
+      clearTimeout(
+        typingTimeoutRef.current
+      );
+    }
+
+    socketRef.current.emit("typing", {
+      target:
+        partnerSocketIdRef.current,
+
+      isTyping: false,
+    });
 
     socketRef.current.emit(
       "chat-message",
@@ -427,22 +457,6 @@ export default function TextChatPage() {
         message: text,
       }
     );
-
-    // Stop typing indicator
-    socketRef.current.emit("typing", {
-      target:
-        partnerSocketIdRef.current,
-
-      isTyping: false,
-    });
-
-    if (
-      typingTimeoutRef.current
-    ) {
-      clearTimeout(
-        typingTimeoutRef.current
-      );
-    }
 
     setMessages((prev) => [
       ...prev,
@@ -468,7 +482,8 @@ export default function TextChatPage() {
       );
 
       socketRef.current.emit(
-        "find-partner"
+        "find-partner",
+        { sameCountry }
       );
 
       return;
@@ -504,7 +519,10 @@ export default function TextChatPage() {
       "Looking for a new stranger..."
     );
 
-    socketRef.current.emit("next");
+    socketRef.current.emit(
+      "next",
+      { sameCountry }
+    );
   };
 
   const blockUser = () => {
@@ -576,49 +594,66 @@ export default function TextChatPage() {
   };
 
   return (
-    <main className="min-h-screen bg-gray-50 flex flex-col">
+    <main className="h-dvh overflow-hidden bg-gray-50 dark:bg-gray-950 flex flex-col transition-colors">
       {/* Header */}
 
-      <header className="bg-white shadow-sm py-4 px-6 flex items-center justify-between border-b border-gray-200">
-        <h1 className="text-3xl font-extrabold text-blue-600">
-          RandomChat
-        </h1>
-
+      <header className="flex-none bg-white dark:bg-gray-900 shadow-sm py-3 px-4 md:py-4 md:px-6 flex items-center justify-between border-b border-gray-200 dark:border-gray-800">
         <button
           onClick={() =>
             router.push("/")
           }
-          className="text-blue-600 font-bold hover:underline"
+          className="text-2xl md:text-3xl font-extrabold text-blue-600 dark:text-blue-400 hover:opacity-80 transition-opacity"
         >
-          ← Back
+          RandomChat
         </button>
+
+        <div className="flex items-center gap-3 md:gap-4">
+          <div className="flex items-center gap-2 text-sm font-semibold text-green-700 dark:text-green-400">
+            <span className="relative flex h-3 w-3">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+            </span>
+
+            {onlineUsers}{" "}
+            <span className="hidden sm:inline">
+              {onlineUsers === 1
+                ? "user"
+                : "users"}{" "}
+              online
+            </span>
+          </div>
+
+          <ThemeToggle />
+        </div>
       </header>
 
-      <div className="flex-grow max-w-4xl w-full mx-auto p-4 md:p-6 flex flex-col">
-        <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-3 text-center">
-          💬 Text Chat
-        </h2>
+      <div className="flex-1 min-h-0 max-w-4xl w-full mx-auto p-3 md:p-6 flex flex-col">
+        <div className="flex-none bg-white dark:bg-gray-900 w-full rounded-t-2xl border border-b-0 border-gray-200 dark:border-gray-800 px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <label className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={sameCountry}
+              onChange={(e) =>
+                setSameCountry(
+                  e.target.checked
+                )
+              }
+              className="w-4 h-4 accent-blue-600"
+            />
+            🌍 Match with my country only
+          </label>
 
-        <div className="text-center mb-4">
-          <p className="text-gray-600">
-            {status}
-          </p>
-
-          <p className="text-sm text-green-700 font-semibold mt-2">
-            🟢 {onlineUsers}{" "}
-            {onlineUsers === 1
-              ? "user"
-              : "users"}{" "}
-            online
+          <p className="text-xs text-gray-400 dark:text-gray-500">
+            Applies to your next search
           </p>
         </div>
 
-        <div className="bg-white w-full rounded-2xl shadow-sm border p-4 md:p-6 flex flex-col flex-grow">
+        <div className="bg-white dark:bg-gray-900 w-full rounded-b-2xl shadow-sm border border-gray-200 dark:border-gray-800 p-4 md:p-6 flex flex-col flex-1 min-h-0">
           {/* Chat messages */}
 
-          <div className="h-[50vh] md:h-96 border border-gray-300 rounded-xl p-4 mb-3 overflow-y-auto space-y-3 bg-gray-50">
+          <div className="flex-1 min-h-0 border border-gray-300 dark:border-gray-700 rounded-xl p-4 mb-3 overflow-y-auto space-y-3 bg-gray-50 dark:bg-gray-950">
             {messages.length === 0 ? (
-              <p className="text-gray-500 text-center">
+              <p className="text-gray-500 dark:text-gray-400 text-center">
                 {status}
               </p>
             ) : (
@@ -636,7 +671,7 @@ export default function TextChatPage() {
                       className={
                         item.sender === "me"
                           ? "inline-block bg-blue-600 text-white px-4 py-2 rounded-xl max-w-[80%] break-words text-left"
-                          : "inline-block bg-gray-200 text-gray-900 px-4 py-2 rounded-xl max-w-[80%] break-words"
+                          : "inline-block bg-gray-200 dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-4 py-2 rounded-xl max-w-[80%] break-words"
                       }
                     >
                       {item.text}
@@ -645,14 +680,16 @@ export default function TextChatPage() {
                 )
               )
             )}
+
+            <div ref={messagesEndRef} />
           </div>
 
           {/* Typing indicator */}
 
-          <div className="h-6 mb-2">
+          <div className="flex-none h-6 mb-2">
             {matched &&
               strangerTyping && (
-                <p className="text-sm text-gray-500 italic animate-pulse">
+                <p className="text-sm text-gray-500 dark:text-gray-400 italic animate-pulse">
                   Stranger is typing...
                 </p>
               )}
@@ -660,7 +697,7 @@ export default function TextChatPage() {
 
           {/* Message input */}
 
-          <div className="flex gap-2 md:gap-3 w-full mb-4">
+          <div className="flex-none flex gap-2 md:gap-3 w-full mb-4">
             <input
               type="text"
               value={message}
@@ -684,7 +721,7 @@ export default function TextChatPage() {
                   ? "Type a message..."
                   : "Connect with a stranger first..."
               }
-              className="flex-1 min-w-0 border-2 border-gray-400 bg-white text-black rounded-xl px-4 py-3 outline-none focus:border-blue-600 disabled:bg-gray-200 disabled:text-gray-500"
+              className="flex-1 min-w-0 border-2 border-gray-400 dark:border-gray-700 bg-white dark:bg-gray-800 text-black dark:text-white rounded-xl px-4 py-3 outline-none focus:border-blue-600 disabled:bg-gray-200 dark:disabled:bg-gray-900 disabled:text-gray-500"
             />
 
             <button
@@ -702,7 +739,7 @@ export default function TextChatPage() {
 
           {/* Buttons */}
 
-          <div className="flex flex-wrap gap-3">
+          <div className="flex-none flex flex-wrap gap-3">
             <button
               onClick={startChat}
               disabled={
@@ -741,11 +778,11 @@ export default function TextChatPage() {
             </button>
           </div>
 
-          <p className="text-sm text-gray-500 mt-4">
+          <p className="flex-none text-sm text-gray-500 dark:text-gray-400 mt-4">
             Server:{" "}
 
             {connected ? (
-              <span className="text-green-600 font-bold">
+              <span className="text-green-600 dark:text-green-400 font-bold">
                 Connected
               </span>
             ) : (
@@ -761,12 +798,12 @@ export default function TextChatPage() {
 
       {showReport && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl">
-            <h3 className="text-xl font-bold text-gray-900 mb-4">
+          <div className="bg-white dark:bg-gray-900 rounded-2xl p-6 w-full max-w-md shadow-xl">
+            <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-4">
               Report Stranger
             </h3>
 
-            <p className="text-gray-600 text-sm mb-4">
+            <p className="text-gray-600 dark:text-gray-300 text-sm mb-4">
               Please select the reason
               for your report.
             </p>
@@ -779,7 +816,7 @@ export default function TextChatPage() {
                     .value as ReportReason
                 )
               }
-              className="w-full border border-gray-300 bg-white text-gray-900 rounded-xl px-4 py-3 mb-5"
+              className="w-full border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-xl px-4 py-3 mb-5"
             >
               <option value="HARASSMENT">
                 Harassment
@@ -811,7 +848,7 @@ export default function TextChatPage() {
                 onClick={() =>
                   setShowReport(false)
                 }
-                className="flex-1 bg-gray-200 text-gray-800 py-3 rounded-xl font-bold"
+                className="flex-1 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-100 py-3 rounded-xl font-bold"
               >
                 Cancel
               </button>

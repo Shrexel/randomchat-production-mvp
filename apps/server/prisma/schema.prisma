@@ -7,34 +7,24 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum ReportReason {
-  HARASSMENT
-  SEXUAL_CONTENT
-  SPAM
-  SCAM
-  HATE
-  OTHER
-}
-
 model Guest {
   id        String   @id @default(cuid())
   createdAt DateTime @default(now())
-  reports   Report[] @relation("Reporter")
-  reported  Report[] @relation("Reported")
-  blocks    Block[]  @relation("Blocker")
   blockedBy Block[]  @relation("Blocked")
+  blocks    Block[]  @relation("Blocker")
+  reported  Report[] @relation("Reported")
+  reports   Report[] @relation("Reporter")
 }
 
 model Report {
-  id          String       @id @default(cuid())
-  reporterId  String
-  reportedId  String?
-  reason      ReportReason
-  details     String?
-  createdAt   DateTime     @default(now())
-
-  reporter Guest  @relation("Reporter", fields: [reporterId], references: [id])
-  reported Guest? @relation("Reported", fields: [reportedId], references: [id])
+  id         String       @id @default(cuid())
+  reporterId String
+  reportedId String?
+  reason     ReportReason
+  details    String?
+  createdAt  DateTime     @default(now())
+  reported   Guest?       @relation("Reported", fields: [reportedId], references: [id])
+  reporter   Guest        @relation("Reporter", fields: [reporterId], references: [id])
 
   @@index([reportedId, createdAt])
 }
@@ -44,9 +34,17 @@ model Block {
   blockerId String
   blockedId String
   createdAt DateTime @default(now())
-
-  blocker Guest @relation("Blocker", fields: [blockerId], references: [id])
-  blocked Guest @relation("Blocked", fields: [blockedId], references: [id])
+  blocked   Guest    @relation("Blocked", fields: [blockedId], references: [id])
+  blocker   Guest    @relation("Blocker", fields: [blockerId], references: [id])
 
   @@unique([blockerId, blockedId])
+}
+
+enum ReportReason {
+  HARASSMENT
+  SEXUAL_CONTENT
+  SPAM
+  SCAM
+  HATE
+  OTHER
 }

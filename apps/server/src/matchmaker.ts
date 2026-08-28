@@ -1,6 +1,7 @@
-type WaitingUser = {
+export type WaitingUser = {
   socketId: string;
   guestId: string;
+  country: string | null;
   queuedAt: number;
 };
 
@@ -18,22 +19,23 @@ export class Matchmaker {
 
   takeCandidate(
     socketId: string,
-    isBlocked: (candidateGuestId: string) => Promise<boolean>
+    shouldSkip: (candidate: WaitingUser) => Promise<boolean>
   ): Promise<WaitingUser | null> {
-    return this.take(socketId, isBlocked);
+    return this.take(socketId, shouldSkip);
   }
 
   private async take(
     socketId: string,
-    isBlocked: (candidateGuestId: string) => Promise<boolean>
+    shouldSkip: (candidate: WaitingUser) => Promise<boolean>
   ) {
     for (let i = 0; i < this.queue.length; i++) {
       const candidate = this.queue[i];
       if (candidate.socketId === socketId) continue;
 
-      if (await isBlocked(candidate.guestId)) {
-        this.queue.splice(i, 1);
-        i--;
+      // A candidate skipped for THIS searcher (blocked, or a country
+      // mismatch when "same country" is on) is left in the queue —
+      // they may still be a valid match for someone else searching.
+      if (await shouldSkip(candidate)) {
         continue;
       }
 

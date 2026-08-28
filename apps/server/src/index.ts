@@ -2,14 +2,19 @@ import http from "http";
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
-import { Server } from "socket.io";
+import { Server, Socket } from "socket.io";
 import rateLimit from "express-rate-limit";
 import { z } from "zod";
+import geoip from "geoip-lite";
 import { config } from "./config";
 import { prisma } from "./db";
 import { Matchmaker } from "./matchmaker";
 
 const app = express();
+
+// Render (and most hosts) sit behind a reverse proxy, so req.ip would
+// otherwise report the proxy's address instead of the visitor's.
+app.set("trust proxy", 1);
 
 app.use(helmet());
 
@@ -54,6 +59,8 @@ const sessions = new Map<
   string,
   {
     guestId: string;
+    country: string | null;
+    sameCountry: boolean;
     partnerSocketId?: string;
     partnerGuestId?: string;
   }
@@ -71,6 +78,12 @@ const typingSchema = z.object({
   isTyping: z.boolean(),
 });
 
+const findPartnerSchema = z
+  .object({
+    sameCountry: z.boolean().optional(),
+  })
+  .optional();
+
 const reportSchema = z.object({
   reportedGuestId: z.string().min(1),
 
@@ -85,6 +98,27 @@ const reportSchema = z.object({
 
   details: z.string().trim().max(1000).optional(),
 });
+
+function getClientIp(socket: Socket): string {
+  const forwarded = socket.handshake.headers["x-forwarded-for"];
+
+  if (typeof forwarded === "string" && forwarded.length > 0) {
+    return forwarded.split(",")[0].trim();
+  }
+
+  return socket.handshake.address || "";
+}
+
+function getCountry(ip: string): string | null {
+  if (!ip) return null;
+
+  // IPv4 addresses are sometimes reported in IPv6-mapped form.
+  const cleanIp = ip.replace("::ffff:", "");
+
+  const geo = geoip.lookup(cleanIp);
+
+  return geo?.country ?? null;
+}
 
 function broadcastOnlineUsers() {
   const uniqueGuests = new Set<string>();
@@ -125,17 +159,39 @@ async function findAndMatch(socketId: string) {
 
   const candidate = await matchmaker.takeCandidate(
     socketId,
-    (candidateGuestId) =>
-      areBlocked(
-        session.guestId,
-        candidateGuestId
-      )
+    async (candidateEntry) => {
+      if (
+        await areBlocked(
+          session.guestId,
+          candidateEntry.guestId
+        )
+      ) {
+        return true;
+      }
+
+      // "Same country" only restricts MY OWN candidate pool — it
+      // does not require the other person to have it enabled too.
+      // If either side's country couldn't be resolved (common in
+      // local development), we don't apply the restriction so
+      // testing isn't blocked.
+      if (
+        session.sameCountry &&
+        session.country &&
+        candidateEntry.country &&
+        session.country !== candidateEntry.country
+      ) {
+        return true;
+      }
+
+      return false;
+    }
   );
 
   if (!candidate) {
     matchmaker.enqueue({
       socketId,
       guestId: session.guestId,
+      country: session.country,
       queuedAt: Date.now(),
     });
 
@@ -215,6 +271,40 @@ function disconnectPartner(
   }
 }
 
+async function handleFindPartner(
+  socket: Socket,
+  payload: unknown
+) {
+  try {
+    const session = sessions.get(socket.id);
+
+    if (!session) return;
+
+    const parsed =
+      findPartnerSchema.safeParse(payload);
+
+    session.sameCountry = Boolean(
+      parsed.success && parsed.data?.sameCountry
+    );
+
+    matchmaker.remove(socket.id);
+
+    disconnectPartner(
+      socket.id,
+      "partner-left"
+    );
+
+    await findAndMatch(socket.id);
+  } catch (error) {
+    console.error(error);
+
+    socket.emit("server-error", {
+      message:
+        "Unable to find a partner.",
+    });
+  }
+}
+
 io.on("connection", async (socket) => {
   const guestId = String(
     socket.handshake.auth?.guestId || ""
@@ -252,8 +342,13 @@ io.on("connection", async (socket) => {
     return;
   }
 
+  const ip = getClientIp(socket);
+  const country = getCountry(ip);
+
   sessions.set(socket.id, {
     guestId,
+    country,
+    sameCountry: false,
   });
 
   // Send the current online count
@@ -261,25 +356,8 @@ io.on("connection", async (socket) => {
 
   socket.on(
     "find-partner",
-    async () => {
-      try {
-        matchmaker.remove(socket.id);
-
-        disconnectPartner(
-          socket.id,
-          "partner-left"
-        );
-
-        await findAndMatch(socket.id);
-      } catch (error) {
-        console.error(error);
-
-        socket.emit("server-error", {
-          message:
-            "Unable to find a partner.",
-        });
-      }
-    }
+    (payload) =>
+      handleFindPartner(socket, payload)
   );
 
   socket.on(
@@ -347,25 +425,11 @@ io.on("connection", async (socket) => {
     );
   });
 
-  socket.on("next", async () => {
-    try {
-      matchmaker.remove(socket.id);
-
-      disconnectPartner(
-        socket.id,
-        "partner-left"
-      );
-
-      await findAndMatch(socket.id);
-    } catch (error) {
-      console.error(error);
-
-      socket.emit("server-error", {
-        message:
-          "Unable to find a new stranger.",
-      });
-    }
-  });
+  socket.on(
+    "next",
+    (payload) =>
+      handleFindPartner(socket, payload)
+  );
 
   socket.on(
     "report",
