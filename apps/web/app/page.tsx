@@ -104,7 +104,30 @@ export default function Home() {
       </div>
 
       {/* Footer */}
-      <footer className="py-6 border-t border-gray-200 dark:border-gray-800 text-center text-gray-400 dark:text-gray-500 text-sm bg-white dark:bg-gray-900">
+      <footer className="py-6 border-t border-gray-200 dark:border-gray-800 text-center text-gray-400 dark:text-gray-500 text-sm bg-white dark:bg-gray-900 space-y-2">
+        <div className="flex flex-wrap gap-4 justify-center">
+          <a
+            href="/terms"
+            className="hover:text-blue-600 dark:hover:text-blue-400 hover:underline"
+          >
+            Terms of Service
+          </a>
+
+          <a
+            href="/privacy"
+            className="hover:text-blue-600 dark:hover:text-blue-400 hover:underline"
+          >
+            Privacy Policy
+          </a>
+
+          <a
+            href="/community-guidelines"
+            className="hover:text-blue-600 dark:hover:text-blue-400 hover:underline"
+          >
+            Community Guidelines
+          </a>
+        </div>
+
         <p>
           &copy; {new Date().getFullYear()} RandomChat. All rights reserved.
         </p>
