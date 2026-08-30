@@ -13,6 +13,7 @@ import {
 } from "socket.io-client";
 
 import ThemeToggle from "@/components/ThemeToggle";
+import AuthMenu from "@/components/AuthMenu";
 
 type Message = {
   text: string;
@@ -624,6 +625,7 @@ export default function TextChatPage() {
           </div>
 
           <ThemeToggle />
+          <AuthMenu />
         </div>
       </header>
 

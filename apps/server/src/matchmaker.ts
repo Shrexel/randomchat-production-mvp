@@ -2,6 +2,8 @@ export type WaitingUser = {
   socketId: string;
   guestId: string;
   country: string | null;
+  gender: string | null;
+  lookingFor: string | null;
   queuedAt: number;
 };
 

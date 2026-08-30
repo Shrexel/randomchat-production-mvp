@@ -61,6 +61,8 @@ const sessions = new Map<
     guestId: string;
     country: string | null;
     sameCountry: boolean;
+    gender: string | null;
+    lookingFor: string | null;
     partnerSocketId?: string;
     partnerGuestId?: string;
   }
@@ -78,9 +80,24 @@ const typingSchema = z.object({
   isTyping: z.boolean(),
 });
 
+const genderEnum = z.enum([
+  "MALE",
+  "FEMALE",
+  "OTHER",
+]);
+
+const lookingForEnum = z.enum([
+  "RANDOM",
+  "MALE",
+  "FEMALE",
+  "OTHER",
+]);
+
 const findPartnerSchema = z
   .object({
     sameCountry: z.boolean().optional(),
+    gender: genderEnum.optional(),
+    lookingFor: lookingForEnum.optional(),
   })
   .optional();
 
@@ -130,6 +147,23 @@ function broadcastOnlineUsers() {
   io.emit("online-users", {
     count: uniqueGuests.size,
   });
+}
+
+async function isPremiumGuest(
+  guestId: string
+): Promise<boolean> {
+  const activeSubscription =
+    await prisma.subscription.findFirst({
+      where: {
+        status: "ACTIVE",
+        endAt: { gt: new Date() },
+        profile: {
+          guestId,
+        },
+      },
+    });
+
+  return Boolean(activeSubscription);
 }
 
 async function areBlocked(a: string, b: string) {
@@ -183,6 +217,30 @@ async function findAndMatch(socketId: string) {
         return true;
       }
 
+      // Gender matching is mutual: I only see candidates matching
+      // what I'm looking for, AND I only match with people who are
+      // (a) not filtering by gender at all, or (b) looking for my
+      // gender specifically. This respects both sides' choices
+      // instead of forcing an unwanted match on either person.
+      if (
+        session.lookingFor &&
+        session.lookingFor !== "RANDOM" &&
+        candidateEntry.gender !==
+          session.lookingFor
+      ) {
+        return true;
+      }
+
+      if (
+        candidateEntry.lookingFor &&
+        candidateEntry.lookingFor !==
+          "RANDOM" &&
+        candidateEntry.lookingFor !==
+          session.gender
+      ) {
+        return true;
+      }
+
       return false;
     }
   );
@@ -192,6 +250,8 @@ async function findAndMatch(socketId: string) {
       socketId,
       guestId: session.guestId,
       country: session.country,
+      gender: session.gender,
+      lookingFor: session.lookingFor,
       queuedAt: Date.now(),
     });
 
@@ -287,6 +347,22 @@ async function handleFindPartner(
       parsed.success && parsed.data?.sameCountry
     );
 
+    // Gender-based matching is a paid feature — never trust the
+    // client's claim, always verify against the database.
+    if (
+      parsed.success &&
+      parsed.data?.gender &&
+      parsed.data?.lookingFor &&
+      (await isPremiumGuest(session.guestId))
+    ) {
+      session.gender = parsed.data.gender;
+      session.lookingFor =
+        parsed.data.lookingFor;
+    } else {
+      session.gender = null;
+      session.lookingFor = null;
+    }
+
     matchmaker.remove(socket.id);
 
     disconnectPartner(
@@ -349,6 +425,8 @@ io.on("connection", async (socket) => {
     guestId,
     country,
     sameCountry: false,
+    gender: null,
+    lookingFor: null,
   });
 
   // Send the current online count

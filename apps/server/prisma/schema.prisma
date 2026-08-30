@@ -7,24 +7,54 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum ReportReason {
+  HARASSMENT
+  SEXUAL_CONTENT
+  SPAM
+  SCAM
+  HATE
+  OTHER
+}
+
+enum Plan {
+  ONE_DAY
+  THREE_DAY
+  FOUR_DAY
+}
+
+enum SubscriptionStatus {
+  PENDING
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
 model Guest {
   id        String   @id @default(cuid())
   createdAt DateTime @default(now())
-  blockedBy Block[]  @relation("Blocked")
-  blocks    Block[]  @relation("Blocker")
-  reported  Report[] @relation("Reported")
   reports   Report[] @relation("Reporter")
+  reported  Report[] @relation("Reported")
+  blocks    Block[]  @relation("Blocker")
+  blockedBy Block[]  @relation("Blocked")
+  profile   Profile?
 }
 
 model Report {
-  id         String       @id @default(cuid())
-  reporterId String
-  reportedId String?
-  reason     ReportReason
-  details    String?
-  createdAt  DateTime     @default(now())
-  reported   Guest?       @relation("Reported", fields: [reportedId], references: [id])
-  reporter   Guest        @relation("Reporter", fields: [reporterId], references: [id])
+  id          String       @id @default(cuid())
+  reporterId  String
+  reportedId  String?
+  reason      ReportReason
+  details     String?
+  createdAt   DateTime     @default(now())
+
+  reporter Guest  @relation("Reporter", fields: [reporterId], references: [id])
+  reported Guest? @relation("Reported", fields: [reportedId], references: [id])
 
   @@index([reportedId, createdAt])
 }
@@ -34,17 +64,48 @@ model Block {
   blockerId String
   blockedId String
   createdAt DateTime @default(now())
-  blocked   Guest    @relation("Blocked", fields: [blockedId], references: [id])
-  blocker   Guest    @relation("Blocker", fields: [blockerId], references: [id])
+
+  blocker Guest @relation("Blocker", fields: [blockerId], references: [id])
+  blocked Guest @relation("Blocked", fields: [blockedId], references: [id])
 
   @@unique([blockerId, blockedId])
 }
 
-enum ReportReason {
-  HARASSMENT
-  SEXUAL_CONTENT
-  SPAM
-  SCAM
-  HATE
-  OTHER
+// A signed-in Google user. Anonymous guests never get a row here —
+// this only exists once someone signs in and completes their profile.
+model Profile {
+  id        String   @id @default(cuid())
+  googleId  String   @unique
+  email     String   @unique
+  name      String
+  dob       DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Links this account back to the same anonymous guest identity
+  // they were already using, so existing blocks/reports carry over.
+  guestId String? @unique
+  guest   Guest?  @relation(fields: [guestId], references: [id])
+
+  subscriptions Subscription[]
+}
+
+model Subscription {
+  id        String             @id @default(cuid())
+  profileId String
+  profile   Profile            @relation(fields: [profileId], references: [id])
+
+  plan   Plan
+  amount Int
+  status SubscriptionStatus @default(PENDING)
+
+  razorpayOrderId   String?
+  razorpayPaymentId String?
+
+  startAt DateTime?
+  endAt   DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([profileId, status])
 }
