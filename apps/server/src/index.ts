@@ -6,21 +6,32 @@ import { Server, Socket } from "socket.io";
 import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import geoip from "geoip-lite";
+
 import { config } from "./config";
 import { prisma } from "./db";
 import { Matchmaker } from "./matchmaker";
 
+// ============================================================
+// APP SETUP
+// ============================================================
+
 const app = express();
 
-// Render (and most hosts) sit behind a reverse proxy, so req.ip would
-// otherwise report the proxy's address instead of the visitor's.
 app.set("trust proxy", 1);
 
-app.use(helmet());
+app.use(
+  helmet({
+    crossOriginResourcePolicy: {
+      policy: "cross-origin",
+    },
+  })
+);
 
 app.use(
   cors({
     origin: config.WEB_ORIGIN,
+    methods: ["GET", "POST", "OPTIONS"],
+    credentials: true,
   })
 );
 
@@ -35,12 +46,21 @@ app.use(
   })
 );
 
+// ============================================================
+// HEALTH CHECK
+// ============================================================
+
 app.get("/health", (_req, res) => {
-  res.json({
+  res.status(200).json({
     ok: true,
     service: "randomchat-server",
+    timestamp: new Date().toISOString(),
   });
 });
+
+// ============================================================
+// HTTP + SOCKET.IO SERVER
+// ============================================================
 
 const httpServer = http.createServer(app);
 
@@ -48,31 +68,65 @@ const io = new Server(httpServer, {
   cors: {
     origin: config.WEB_ORIGIN,
     methods: ["GET", "POST"],
+    credentials: true,
   },
 
+  // WebRTC SDP + ICE candidates are small, but keep a safe limit.
   maxHttpBufferSize: 32 * 1024,
+
+  // Helps WebSocket connections work correctly behind Render/proxies.
+  transports: ["websocket", "polling"],
 });
+
+// ============================================================
+// MATCHMAKER
+// ============================================================
 
 const matchmaker = new Matchmaker();
 
-const sessions = new Map<
-  string,
-  {
-    guestId: string;
-    country: string | null;
-    sameCountry: boolean;
-    gender: string | null;
-    lookingFor: string | null;
-    partnerSocketId?: string;
-    partnerGuestId?: string;
-  }
->();
+// ============================================================
+// SESSION STATE
+// ============================================================
+
+type Session = {
+  guestId: string;
+
+  country: string | null;
+
+  sameCountry: boolean;
+
+  gender: string | null;
+
+  lookingFor: string | null;
+
+  partnerSocketId?: string;
+
+  partnerGuestId?: string;
+};
+
+const sessions = new Map<string, Session>();
+
+// ============================================================
+// VALIDATION SCHEMAS
+// ============================================================
+
+// -------------------------
+// Chat
+// -------------------------
 
 const chatSchema = z.object({
   target: z.string().min(1).max(100),
 
-  message: z.string().trim().min(1).max(1000),
+  message: z
+    .string()
+    .trim()
+    .min(1)
+    .max(1000),
 });
+
+// -------------------------
+// Typing
+// -------------------------
 
 const typingSchema = z.object({
   target: z.string().min(1).max(100),
@@ -80,11 +134,19 @@ const typingSchema = z.object({
   isTyping: z.boolean(),
 });
 
+// -------------------------
+// Gender
+// -------------------------
+
 const genderEnum = z.enum([
   "MALE",
   "FEMALE",
   "OTHER",
 ]);
+
+// -------------------------
+// Looking for
+// -------------------------
 
 const lookingForEnum = z.enum([
   "RANDOM",
@@ -93,13 +155,23 @@ const lookingForEnum = z.enum([
   "OTHER",
 ]);
 
+// -------------------------
+// Find partner
+// -------------------------
+
 const findPartnerSchema = z
   .object({
     sameCountry: z.boolean().optional(),
+
     gender: genderEnum.optional(),
+
     lookingFor: lookingForEnum.optional(),
   })
   .optional();
+
+// -------------------------
+// Report
+// -------------------------
 
 const reportSchema = z.object({
   reportedGuestId: z.string().min(1),
@@ -113,29 +185,120 @@ const reportSchema = z.object({
     "OTHER",
   ]),
 
-  details: z.string().trim().max(1000).optional(),
+  details: z
+    .string()
+    .trim()
+    .max(1000)
+    .optional(),
 });
 
-function getClientIp(socket: Socket): string {
-  const forwarded = socket.handshake.headers["x-forwarded-for"];
+// ============================================================
+// WEBRTC SIGNALING
+// ============================================================
+//
+// IMPORTANT:
+//
+// The server does NOT process video/audio.
+//
+// It only forwards:
+//
+//   - SDP offer
+//   - SDP answer
+//   - ICE candidates
+//
+// between the two matched users.
+//
+// Actual video/audio flows peer-to-peer through WebRTC.
+//
+// ============================================================
 
-  if (typeof forwarded === "string" && forwarded.length > 0) {
-    return forwarded.split(",")[0].trim();
+const webRTCSignalSchema = z.object({
+  target: z.string().min(1).max(100),
+
+  signal: z
+    .object({
+      type: z
+        .enum([
+          "offer",
+          "answer",
+          "pranswer",
+          "rollback",
+        ])
+        .optional(),
+
+      sdp: z
+        .string()
+        .max(20_000)
+        .optional(),
+
+      candidate: z
+        .string()
+        .max(5_000)
+        .optional(),
+
+      sdpMid: z
+        .string()
+        .max(100)
+        .nullable()
+        .optional(),
+
+      sdpMLineIndex: z
+        .number()
+        .int()
+        .min(0)
+        .max(100)
+        .nullable()
+        .optional(),
+
+      usernameFragment: z
+        .string()
+        .max(200)
+        .nullable()
+        .optional(),
+    })
+    .passthrough(),
+});
+
+// ============================================================
+// CLIENT IP
+// ============================================================
+
+function getClientIp(socket: Socket): string {
+  const forwarded =
+    socket.handshake.headers["x-forwarded-for"];
+
+  if (
+    typeof forwarded === "string" &&
+    forwarded.length > 0
+  ) {
+    return forwarded
+      .split(",")[0]
+      .trim();
   }
 
   return socket.handshake.address || "";
 }
 
-function getCountry(ip: string): string | null {
-  if (!ip) return null;
+// ============================================================
+// COUNTRY
+// ============================================================
 
-  // IPv4 addresses are sometimes reported in IPv6-mapped form.
+function getCountry(ip: string): string | null {
+  if (!ip) {
+    return null;
+  }
+
+  // IPv4 addresses can sometimes appear as IPv6 mapped addresses.
   const cleanIp = ip.replace("::ffff:", "");
 
   const geo = geoip.lookup(cleanIp);
 
   return geo?.country ?? null;
 }
+
+// ============================================================
+// ONLINE USERS
+// ============================================================
 
 function broadcastOnlineUsers() {
   const uniqueGuests = new Set<string>();
@@ -149,6 +312,10 @@ function broadcastOnlineUsers() {
   });
 }
 
+// ============================================================
+// PREMIUM CHECK
+// ============================================================
+
 async function isPremiumGuest(
   guestId: string
 ): Promise<boolean> {
@@ -156,7 +323,11 @@ async function isPremiumGuest(
     await prisma.subscription.findFirst({
       where: {
         status: "ACTIVE",
-        endAt: { gt: new Date() },
+
+        endAt: {
+          gt: new Date(),
+        },
+
         profile: {
           guestId,
         },
@@ -166,101 +337,147 @@ async function isPremiumGuest(
   return Boolean(activeSubscription);
 }
 
-async function areBlocked(a: string, b: string) {
-  const block = await prisma.block.findFirst({
-    where: {
-      OR: [
-        {
-          blockerId: a,
-          blockedId: b,
-        },
+// ============================================================
+// BLOCK CHECK
+// ============================================================
 
-        {
-          blockerId: b,
-          blockedId: a,
-        },
-      ],
-    },
-  });
+async function areBlocked(
+  a: string,
+  b: string
+): Promise<boolean> {
+  const block =
+    await prisma.block.findFirst({
+      where: {
+        OR: [
+          {
+            blockerId: a,
+            blockedId: b,
+          },
+          {
+            blockerId: b,
+            blockedId: a,
+          },
+        ],
+      },
+    });
 
   return Boolean(block);
 }
 
-async function findAndMatch(socketId: string) {
+// ============================================================
+// FIND + MATCH
+// ============================================================
+
+async function findAndMatch(
+  socketId: string
+) {
   const session = sessions.get(socketId);
 
-  if (!session) return;
+  if (!session) {
+    return;
+  }
 
-  const candidate = await matchmaker.takeCandidate(
-    socketId,
-    async (candidateEntry) => {
-      if (
-        await areBlocked(
-          session.guestId,
-          candidateEntry.guestId
-        )
-      ) {
-        return true;
+  const candidate =
+    await matchmaker.takeCandidate(
+      socketId,
+      async (candidateEntry) => {
+        // ------------------------------------------------------
+        // BLOCK FILTER
+        // ------------------------------------------------------
+
+        if (
+          await areBlocked(
+            session.guestId,
+            candidateEntry.guestId
+          )
+        ) {
+          return true;
+        }
+
+        // ------------------------------------------------------
+        // SAME COUNTRY FILTER
+        // ------------------------------------------------------
+        //
+        // Only the person requesting same-country matching
+        // needs to enable it.
+        //
+        // If country information is unavailable, do not block
+        // local development/testing.
+        //
+        // ------------------------------------------------------
+
+        if (
+          session.sameCountry &&
+          session.country &&
+          candidateEntry.country &&
+          session.country !==
+            candidateEntry.country
+        ) {
+          return true;
+        }
+
+        // ------------------------------------------------------
+        // GENDER FILTER - REQUESTER SIDE
+        // ------------------------------------------------------
+
+        if (
+          session.lookingFor &&
+          session.lookingFor !== "RANDOM" &&
+          candidateEntry.gender !==
+            session.lookingFor
+        ) {
+          return true;
+        }
+
+        // ------------------------------------------------------
+        // GENDER FILTER - CANDIDATE SIDE
+        // ------------------------------------------------------
+
+        if (
+          candidateEntry.lookingFor &&
+          candidateEntry.lookingFor !== "RANDOM" &&
+          candidateEntry.lookingFor !==
+            session.gender
+        ) {
+          return true;
+        }
+
+        return false;
       }
+    );
 
-      // "Same country" only restricts MY OWN candidate pool — it
-      // does not require the other person to have it enabled too.
-      // If either side's country couldn't be resolved (common in
-      // local development), we don't apply the restriction so
-      // testing isn't blocked.
-      if (
-        session.sameCountry &&
-        session.country &&
-        candidateEntry.country &&
-        session.country !== candidateEntry.country
-      ) {
-        return true;
-      }
-
-      // Gender matching is mutual: I only see candidates matching
-      // what I'm looking for, AND I only match with people who are
-      // (a) not filtering by gender at all, or (b) looking for my
-      // gender specifically. This respects both sides' choices
-      // instead of forcing an unwanted match on either person.
-      if (
-        session.lookingFor &&
-        session.lookingFor !== "RANDOM" &&
-        candidateEntry.gender !==
-          session.lookingFor
-      ) {
-        return true;
-      }
-
-      if (
-        candidateEntry.lookingFor &&
-        candidateEntry.lookingFor !==
-          "RANDOM" &&
-        candidateEntry.lookingFor !==
-          session.gender
-      ) {
-        return true;
-      }
-
-      return false;
-    }
-  );
+  // ==========================================================
+  // NO MATCH
+  // ==========================================================
 
   if (!candidate) {
     matchmaker.enqueue({
       socketId,
+
       guestId: session.guestId,
+
       country: session.country,
+
       gender: session.gender,
+
       lookingFor: session.lookingFor,
+
       queuedAt: Date.now(),
     });
 
-    io.to(socketId).emit("queue-status", {
-      status: "waiting",
-    });
+    io.to(socketId).emit(
+      "queue-status",
+      {
+        status: "waiting",
+      }
+    );
 
     return;
   }
+
+  // ==========================================================
+  // VERIFY CANDIDATE SESSION
+  // ==========================================================
 
   const other = sessions.get(
     candidate.socketId
@@ -270,32 +487,85 @@ async function findAndMatch(socketId: string) {
     return findAndMatch(socketId);
   }
 
+  // ==========================================================
+  // CREATE MATCH
+  // ==========================================================
+
   session.partnerSocketId =
     candidate.socketId;
 
   session.partnerGuestId =
     candidate.guestId;
 
-  other.partnerSocketId = socketId;
+  other.partnerSocketId =
+    socketId;
 
   other.partnerGuestId =
     session.guestId;
 
+  // ----------------------------------------------------------
+  // Tell candidate
+  // ----------------------------------------------------------
+
   io.to(candidate.socketId).emit(
     "matched",
     {
-      partnerGuestId: session.guestId,
-      partnerSocketId: socketId,
+      partnerGuestId:
+        session.guestId,
+
+      partnerSocketId:
+        socketId,
+
+      // Candidate waits for offer.
       initiator: false,
     }
   );
 
-  io.to(socketId).emit("matched", {
-    partnerGuestId: candidate.guestId,
-    partnerSocketId: candidate.socketId,
-    initiator: true,
-  });
+  // ----------------------------------------------------------
+  // Tell requester
+  // ----------------------------------------------------------
+
+  io.to(socketId).emit(
+    "matched",
+    {
+      partnerGuestId:
+        candidate.guestId,
+
+      partnerSocketId:
+        candidate.socketId,
+
+      // Requester creates WebRTC offer.
+      initiator: true,
+    }
+  );
+
+  // ----------------------------------------------------------
+  // Extra event for video clients.
+  //
+  // This allows the frontend to know that both users are now
+  // connected at the matching layer.
+  // ----------------------------------------------------------
+
+  io.to(socketId).emit(
+    "video-ready",
+    {
+      partnerSocketId:
+        candidate.socketId,
+    }
+  );
+
+  io.to(candidate.socketId).emit(
+    "video-ready",
+    {
+      partnerSocketId:
+        socketId,
+    }
+  );
 }
+
+// ============================================================
+// DISCONNECT PARTNER
+// ============================================================
 
 function disconnectPartner(
   socketId: string,
@@ -313,13 +583,28 @@ function disconnectPartner(
   const partner =
     sessions.get(partnerSocketId);
 
-  session.partnerSocketId = undefined;
-  session.partnerGuestId = undefined;
+  // ----------------------------------------------------------
+  // Clear current user's partner
+  // ----------------------------------------------------------
+
+  session.partnerSocketId =
+    undefined;
+
+  session.partnerGuestId =
+    undefined;
+
+  // ----------------------------------------------------------
+  // Clear partner's partner
+  // ----------------------------------------------------------
 
   if (partner) {
-    partner.partnerSocketId = undefined;
-    partner.partnerGuestId = undefined;
+    partner.partnerSocketId =
+      undefined;
 
+    partner.partnerGuestId =
+      undefined;
+
+    // Stop typing indicator.
     io.to(partnerSocketId).emit(
       "typing",
       {
@@ -327,201 +612,249 @@ function disconnectPartner(
       }
     );
 
-    io.to(partnerSocketId).emit(reason);
+    // Tell partner that connection ended.
+    io.to(partnerSocketId).emit(
+      reason
+    );
+
+    // Tell video client to close RTCPeerConnection.
+    io.to(partnerSocketId).emit(
+      "video-ended"
+    );
   }
 }
+
+// ============================================================
+// FIND PARTNER HANDLER
+// ============================================================
 
 async function handleFindPartner(
   socket: Socket,
   payload: unknown
 ) {
   try {
-    const session = sessions.get(socket.id);
+    const session =
+      sessions.get(socket.id);
 
-    if (!session) return;
+    if (!session) {
+      return;
+    }
 
     const parsed =
-      findPartnerSchema.safeParse(payload);
+      findPartnerSchema.safeParse(
+        payload
+      );
+
+    // --------------------------------------------------------
+    // SAME COUNTRY
+    // --------------------------------------------------------
 
     session.sameCountry = Boolean(
-      parsed.success && parsed.data?.sameCountry
+      parsed.success &&
+        parsed.data?.sameCountry
     );
 
-    // Gender-based matching is a paid feature — never trust the
-    // client's claim, always verify against the database.
+    // --------------------------------------------------------
+    // PREMIUM GENDER MATCHING
+    // --------------------------------------------------------
+    //
+    // Never trust the frontend.
+    //
+    // The server verifies the subscription.
+    //
+    // --------------------------------------------------------
+
     if (
       parsed.success &&
       parsed.data?.gender &&
       parsed.data?.lookingFor &&
-      (await isPremiumGuest(session.guestId))
+      (await isPremiumGuest(
+        session.guestId
+      ))
     ) {
-      session.gender = parsed.data.gender;
+      session.gender =
+        parsed.data.gender;
+
       session.lookingFor =
         parsed.data.lookingFor;
     } else {
       session.gender = null;
+
       session.lookingFor = null;
     }
 
+    // --------------------------------------------------------
+    // Remove old queue entry.
+    // --------------------------------------------------------
+
     matchmaker.remove(socket.id);
+
+    // --------------------------------------------------------
+    // End previous conversation.
+    // --------------------------------------------------------
 
     disconnectPartner(
       socket.id,
       "partner-left"
     );
 
+    // --------------------------------------------------------
+    // Find new partner.
+    // --------------------------------------------------------
+
     await findAndMatch(socket.id);
   } catch (error) {
-    console.error(error);
-
-    socket.emit("server-error", {
-      message:
-        "Unable to find a partner.",
-    });
-  }
-}
-
-io.on("connection", async (socket) => {
-  const guestId = String(
-    socket.handshake.auth?.guestId || ""
-  );
-
-  if (!guestId) {
-    socket.disconnect(true);
-    return;
-  }
-
-  try {
-    await prisma.guest.upsert({
-      where: {
-        id: guestId,
-      },
-
-      update: {},
-
-      create: {
-        id: guestId,
-      },
-    });
-  } catch (error) {
     console.error(
-      "Failed to create guest:",
+      "find-partner error:",
       error
     );
 
-    socket.emit("server-error", {
-      message:
-        "Unable to start your session.",
-    });
-
-    socket.disconnect(true);
-    return;
-  }
-
-  const ip = getClientIp(socket);
-  const country = getCountry(ip);
-
-  sessions.set(socket.id, {
-    guestId,
-    country,
-    sameCountry: false,
-    gender: null,
-    lookingFor: null,
-  });
-
-  // Send the current online count
-  broadcastOnlineUsers();
-
-  socket.on(
-    "find-partner",
-    (payload) =>
-      handleFindPartner(socket, payload)
-  );
-
-  socket.on(
-    "chat-message",
-    (payload) => {
-      const parsed =
-        chatSchema.safeParse(payload);
-
-      if (!parsed.success) return;
-
-      const session =
-        sessions.get(socket.id);
-
-      if (!session?.partnerSocketId) {
-        return;
-      }
-
-      if (
-        parsed.data.target !==
-        session.partnerSocketId
-      ) {
-        return;
-      }
-
-      io.to(parsed.data.target).emit(
-        "chat-message",
-        {
-          message:
-            parsed.data.message,
-        }
-      );
-    }
-  );
-
-  // =========================
-  // TYPING INDICATOR
-  // =========================
-
-  socket.on("typing", (payload) => {
-    const parsed =
-      typingSchema.safeParse(payload);
-
-    if (!parsed.success) return;
-
-    const session =
-      sessions.get(socket.id);
-
-    if (!session?.partnerSocketId) {
-      return;
-    }
-
-    if (
-      parsed.data.target !==
-      session.partnerSocketId
-    ) {
-      return;
-    }
-
-    io.to(parsed.data.target).emit(
-      "typing",
+    socket.emit(
+      "server-error",
       {
-        isTyping:
-          parsed.data.isTyping,
+        message:
+          "Unable to find a partner.",
       }
     );
-  });
+  }
+}
 
-  socket.on(
-    "next",
-    (payload) =>
-      handleFindPartner(socket, payload)
-  );
+// ============================================================
+// SOCKET CONNECTION
+// ============================================================
 
-  socket.on(
-    "report",
-    async (payload) => {
-      try {
+io.on(
+  "connection",
+  async (socket) => {
+    console.log(
+      "Socket connected:",
+      socket.id
+    );
+
+    // ========================================================
+    // GUEST ID
+    // ========================================================
+
+    const guestId = String(
+      socket.handshake.auth?.guestId || ""
+    ).trim();
+
+    if (!guestId) {
+      socket.emit(
+        "server-error",
+        {
+          message:
+            "Guest ID is required.",
+        }
+      );
+
+      socket.disconnect(true);
+
+      return;
+    }
+
+    // ========================================================
+    // CREATE / VERIFY GUEST
+    // ========================================================
+
+    try {
+      await prisma.guest.upsert({
+        where: {
+          id: guestId,
+        },
+
+        update: {},
+
+        create: {
+          id: guestId,
+        },
+      });
+    } catch (error) {
+      console.error(
+        "Failed to create guest:",
+        error
+      );
+
+      socket.emit(
+        "server-error",
+        {
+          message:
+            "Unable to start your session.",
+        }
+      );
+
+      socket.disconnect(true);
+
+      return;
+    }
+
+    // ========================================================
+    // COUNTRY
+    // ========================================================
+
+    const ip =
+      getClientIp(socket);
+
+    const country =
+      getCountry(ip);
+
+    // ========================================================
+    // CREATE SESSION
+    // ========================================================
+
+    sessions.set(
+      socket.id,
+      {
+        guestId,
+
+        country,
+
+        sameCountry: false,
+
+        gender: null,
+
+        lookingFor: null,
+      }
+    );
+
+    // ========================================================
+    // ONLINE COUNT
+    // ========================================================
+
+    broadcastOnlineUsers();
+
+    // ========================================================
+    // FIND PARTNER
+    // ========================================================
+
+    socket.on(
+      "find-partner",
+      (payload) => {
+        void handleFindPartner(
+          socket,
+          payload
+        );
+      }
+    );
+
+    // ========================================================
+    // CHAT MESSAGE
+    // ========================================================
+
+    socket.on(
+      "chat-message",
+      (payload) => {
         const parsed =
-          reportSchema.safeParse(payload);
+          chatSchema.safeParse(
+            payload
+          );
 
         if (!parsed.success) {
           socket.emit(
             "server-error",
             {
               message:
-                "Invalid report.",
+                "Invalid message.",
             }
           );
 
@@ -531,165 +864,554 @@ io.on("connection", async (socket) => {
         const session =
           sessions.get(socket.id);
 
-        if (!session) return;
-
         if (
-          session.partnerGuestId !==
-          parsed.data.reportedGuestId
+          !session?.partnerSocketId
         ) {
           return;
         }
 
-        await prisma.report.create({
-          data: {
-            reporterId:
-              session.guestId,
+        // Never allow sending to an arbitrary socket.
+        if (
+          parsed.data.target !==
+          session.partnerSocketId
+        ) {
+          return;
+        }
 
-            reportedId:
-              parsed.data
-                .reportedGuestId,
-
-            reason:
-              parsed.data.reason,
-
-            details:
-              parsed.data.details,
-          },
-        });
-
-        disconnectPartner(
-          socket.id,
-          "partner-reported"
-        );
-
-        matchmaker.remove(socket.id);
-
-        socket.emit(
-          "report-submitted"
-        );
-
-        await findAndMatch(socket.id);
-      } catch (error) {
-        console.error(error);
-
-        socket.emit(
-          "server-error",
+        io.to(
+          parsed.data.target
+        ).emit(
+          "chat-message",
           {
             message:
-              "Unable to submit report.",
+              parsed.data.message,
           }
         );
       }
-    }
-  );
+    );
 
-  socket.on(
-    "block",
-    async ({ blockedGuestId }) => {
-      try {
-        if (
-          typeof blockedGuestId !==
-            "string" ||
-          !blockedGuestId
-        ) {
+    // ========================================================
+    // TYPING INDICATOR
+    // ========================================================
+
+    socket.on(
+      "typing",
+      (payload) => {
+        const parsed =
+          typingSchema.safeParse(
+            payload
+          );
+
+        if (!parsed.success) {
           return;
         }
 
         const session =
           sessions.get(socket.id);
 
-        if (!session) return;
-
         if (
-          blockedGuestId ===
-          session.guestId
+          !session?.partnerSocketId
         ) {
           return;
         }
 
+        // Never allow typing events to arbitrary users.
         if (
-          session.partnerGuestId !==
-          blockedGuestId
+          parsed.data.target !==
+          session.partnerSocketId
         ) {
           return;
         }
 
-        await prisma.block.upsert({
-          where: {
-            blockerId_blockedId: {
+        io.to(
+          parsed.data.target
+        ).emit(
+          "typing",
+          {
+            isTyping:
+              parsed.data.isTyping,
+          }
+        );
+      }
+    );
+
+    // ========================================================
+    // WEBRTC SIGNALING
+    // ========================================================
+    //
+    // This is the important part for video chat.
+    //
+    // Frontend sends:
+    //
+    // socket.emit("signal", {
+    //   target: partnerSocketId,
+    //   signal
+    // });
+    //
+    // Server verifies that target is actually the current
+    // partner, then forwards it.
+    //
+    // ========================================================
+
+    socket.on(
+      "signal",
+      (payload) => {
+        try {
+          const parsed =
+            webRTCSignalSchema.safeParse(
+              payload
+            );
+
+          if (!parsed.success) {
+            socket.emit(
+              "server-error",
+              {
+                message:
+                  "Invalid WebRTC signal.",
+              }
+            );
+
+            return;
+          }
+
+          const session =
+            sessions.get(socket.id);
+
+          if (
+            !session?.partnerSocketId
+          ) {
+            return;
+          }
+
+          // --------------------------------------------------
+          // SECURITY:
+          // User can ONLY signal their current partner.
+          // --------------------------------------------------
+
+          if (
+            parsed.data.target !==
+            session.partnerSocketId
+          ) {
+            console.warn(
+              `Blocked unauthorized signal from ${socket.id}`
+            );
+
+            return;
+          }
+
+          // --------------------------------------------------
+          // Make sure partner still exists.
+          // --------------------------------------------------
+
+          const partner =
+            sessions.get(
+              parsed.data.target
+            );
+
+          if (!partner) {
+            return;
+          }
+
+          // --------------------------------------------------
+          // Forward WebRTC signal.
+          // --------------------------------------------------
+
+          io.to(
+            parsed.data.target
+          ).emit(
+            "signal",
+            {
+              from: socket.id,
+
+              signal:
+                parsed.data.signal,
+            }
+          );
+        } catch (error) {
+          console.error(
+            "WebRTC signaling error:",
+            error
+          );
+
+          socket.emit(
+            "server-error",
+            {
+              message:
+                "WebRTC signaling failed.",
+            }
+          );
+        }
+      }
+    );
+
+    // ========================================================
+    // VIDEO READY
+    // ========================================================
+    //
+    // Optional frontend event.
+    //
+    // The server does not create the WebRTC connection.
+    // It simply tells the other user that this user is ready.
+    //
+    // ========================================================
+
+    socket.on(
+      "video-ready",
+      () => {
+        const session =
+          sessions.get(socket.id);
+
+        if (
+          !session?.partnerSocketId
+        ) {
+          return;
+        }
+
+        io.to(
+          session.partnerSocketId
+        ).emit(
+          "video-peer-ready"
+        );
+      }
+    );
+
+    // ========================================================
+    // VIDEO STOP
+    // ========================================================
+
+    socket.on(
+      "video-stop",
+      () => {
+        const session =
+          sessions.get(socket.id);
+
+        if (
+          !session?.partnerSocketId
+        ) {
+          return;
+        }
+
+        io.to(
+          session.partnerSocketId
+        ).emit(
+          "video-ended"
+        );
+      }
+    );
+
+    // ========================================================
+    // NEXT
+    // ========================================================
+
+    socket.on(
+      "next",
+      (payload) => {
+        void handleFindPartner(
+          socket,
+          payload
+        );
+      }
+    );
+
+    // ========================================================
+    // REPORT
+    // ========================================================
+
+    socket.on(
+      "report",
+      async (payload) => {
+        try {
+          const parsed =
+            reportSchema.safeParse(
+              payload
+            );
+
+          if (!parsed.success) {
+            socket.emit(
+              "server-error",
+              {
+                message:
+                  "Invalid report.",
+              }
+            );
+
+            return;
+          }
+
+          const session =
+            sessions.get(socket.id);
+
+          if (!session) {
+            return;
+          }
+
+          // User can only report current partner.
+          if (
+            session.partnerGuestId !==
+            parsed.data.reportedGuestId
+          ) {
+            return;
+          }
+
+          await prisma.report.create({
+            data: {
+              reporterId:
+                session.guestId,
+
+              reportedId:
+                parsed.data
+                  .reportedGuestId,
+
+              reason:
+                parsed.data.reason,
+
+              details:
+                parsed.data.details,
+            },
+          });
+
+          // End current conversation.
+          disconnectPartner(
+            socket.id,
+            "partner-reported"
+          );
+
+          // Remove from queue.
+          matchmaker.remove(
+            socket.id
+          );
+
+          socket.emit(
+            "report-submitted"
+          );
+
+          // Automatically search again.
+          await findAndMatch(
+            socket.id
+          );
+        } catch (error) {
+          console.error(
+            "Report error:",
+            error
+          );
+
+          socket.emit(
+            "server-error",
+            {
+              message:
+                "Unable to submit report.",
+            }
+          );
+        }
+      }
+    );
+
+    // ========================================================
+    // BLOCK
+    // ========================================================
+
+    socket.on(
+      "block",
+      async (payload) => {
+        try {
+          if (
+            !payload ||
+            typeof payload !==
+              "object"
+          ) {
+            return;
+          }
+
+          const blockedGuestId =
+            (
+              payload as {
+                blockedGuestId?: unknown;
+              }
+            ).blockedGuestId;
+
+          if (
+            typeof blockedGuestId !==
+              "string" ||
+            !blockedGuestId
+          ) {
+            return;
+          }
+
+          const session =
+            sessions.get(socket.id);
+
+          if (!session) {
+            return;
+          }
+
+          // Cannot block yourself.
+          if (
+            blockedGuestId ===
+            session.guestId
+          ) {
+            return;
+          }
+
+          // Can only block current partner.
+          if (
+            session.partnerGuestId !==
+            blockedGuestId
+          ) {
+            return;
+          }
+
+          await prisma.block.upsert({
+            where: {
+              blockerId_blockedId: {
+                blockerId:
+                  session.guestId,
+
+                blockedId:
+                  blockedGuestId,
+              },
+            },
+
+            update: {},
+
+            create: {
               blockerId:
                 session.guestId,
 
               blockedId:
                 blockedGuestId,
             },
-          },
+          });
 
-          update: {},
+          // End current match.
+          disconnectPartner(
+            socket.id,
+            "partner-blocked"
+          );
 
-          create: {
-            blockerId:
-              session.guestId,
+          // Remove from queue.
+          matchmaker.remove(
+            socket.id
+          );
 
-            blockedId:
-              blockedGuestId,
-          },
-        });
+          socket.emit(
+            "block-submitted"
+          );
 
-        disconnectPartner(
-          socket.id,
-          "partner-blocked"
-        );
+          // Search for another person.
+          await findAndMatch(
+            socket.id
+          );
+        } catch (error) {
+          console.error(
+            "Block error:",
+            error
+          );
 
-        matchmaker.remove(socket.id);
-
-        socket.emit(
-          "block-submitted"
-        );
-
-        await findAndMatch(socket.id);
-      } catch (error) {
-        console.error(error);
-
-        socket.emit(
-          "server-error",
-          {
-            message:
-              "Unable to block this user.",
-          }
-        );
+          socket.emit(
+            "server-error",
+            {
+              message:
+                "Unable to block this user.",
+            }
+          );
+        }
       }
-    }
-  );
-
-  socket.on("disconnect", () => {
-    matchmaker.remove(socket.id);
-
-    disconnectPartner(
-      socket.id,
-      "partner-left"
     );
 
-    sessions.delete(socket.id);
+    // ========================================================
+    // DISCONNECT
+    // ========================================================
 
-    // Update online count for everyone
-    broadcastOnlineUsers();
-  });
-});
+    socket.on(
+      "disconnect",
+      (reason) => {
+        console.log(
+          `Socket disconnected: ${socket.id} (${reason})`
+        );
+
+        // Remove from waiting queue.
+        matchmaker.remove(
+          socket.id
+        );
+
+        // Notify partner and clean up.
+        disconnectPartner(
+          socket.id,
+          "partner-left"
+        );
+
+        // Remove session.
+        sessions.delete(
+          socket.id
+        );
+
+        // Update online count.
+        broadcastOnlineUsers();
+      }
+    );
+  }
+);
+
+// ============================================================
+// SERVER START
+// ============================================================
 
 const port = config.PORT;
 
-httpServer.listen(port, () => {
+httpServer.listen(
+  port,
+  "0.0.0.0",
+  () => {
+    console.log(
+      `RandomChat server listening on :${port}`
+    );
+  }
+);
+
+// ============================================================
+// GRACEFUL SHUTDOWN
+// ============================================================
+
+async function shutdown(
+  signal: string
+) {
   console.log(
-    `RandomChat server listening on :${port}`
+    `${signal} received. Shutting down...`
   );
-});
+
+  // Stop accepting new connections.
+  httpServer.close(() => {
+    console.log(
+      "HTTP server closed."
+    );
+  });
+
+  try {
+    await prisma.$disconnect();
+
+    console.log(
+      "Prisma disconnected."
+    );
+  } catch (error) {
+    console.error(
+      "Prisma shutdown error:",
+      error
+    );
+  }
+
+  process.exit(0);
+}
 
 process.on(
   "SIGTERM",
-  async () => {
-    await prisma.$disconnect();
+  () => {
+    void shutdown("SIGTERM");
+  }
+);
 
-    process.exit(0);
+process.on(
+  "SIGINT",
+  () => {
+    void shutdown("SIGINT");
   }
 );

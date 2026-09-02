@@ -1,5 +1,7 @@
 "use client";
 
+export const dynamic = "force-dynamic";
+
 import {
   useEffect,
   useRef,
@@ -12,8 +14,13 @@ import {
   Socket,
 } from "socket.io-client";
 
+import { useSession } from "next-auth/react";
 import ThemeToggle from "@/components/ThemeToggle";
 import AuthMenu from "@/components/AuthMenu";
+import GenderModal, {
+  GenderOption,
+  LookingForOption,
+} from "@/components/GenderModal";
 
 type Message = {
   text: string;
@@ -86,6 +93,51 @@ export default function TextChatPage() {
 
   const [sameCountry, setSameCountry] =
     useState(false);
+
+  const { status: authStatus } =
+    useSession();
+
+  const [isPremium, setIsPremium] =
+    useState(false);
+
+  const [
+    genderPromptResolved,
+    setGenderPromptResolved,
+  ] = useState(false);
+
+  const [gender, setGender] =
+    useState<GenderOption | null>(null);
+
+  const [lookingFor, setLookingFor] =
+    useState<LookingForOption | null>(
+      null
+    );
+
+  useEffect(() => {
+    if (authStatus !== "authenticated") {
+      // Guests and signed-out users skip
+      // the gender prompt entirely.
+      setGenderPromptResolved(true);
+      return;
+    }
+
+    fetch("/api/subscription/status")
+      .then((res) => res.json())
+      .then((data) => {
+        setIsPremium(
+          Boolean(data.isPremium)
+        );
+
+        // Non-premium signed-in users
+        // also chat fully at random.
+        setGenderPromptResolved(
+          !data.isPremium
+        );
+      })
+      .catch(() =>
+        setGenderPromptResolved(true)
+      );
+  }, [authStatus]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({
@@ -342,6 +394,13 @@ export default function TextChatPage() {
     };
   }, []);
 
+  const buildMatchPayload = () => ({
+    sameCountry,
+    ...(isPremium && gender && lookingFor
+      ? { gender, lookingFor }
+      : {}),
+  });
+
   const startChat = () => {
     if (
       !socketRef.current?.connected
@@ -371,7 +430,7 @@ export default function TextChatPage() {
 
     socketRef.current.emit(
       "find-partner",
-      { sameCountry }
+      buildMatchPayload()
     );
   };
 
@@ -484,7 +543,7 @@ export default function TextChatPage() {
 
       socketRef.current.emit(
         "find-partner",
-        { sameCountry }
+        buildMatchPayload()
       );
 
       return;
@@ -522,7 +581,7 @@ export default function TextChatPage() {
 
     socketRef.current.emit(
       "next",
-      { sameCountry }
+      buildMatchPayload()
     );
   };
 
@@ -596,6 +655,18 @@ export default function TextChatPage() {
 
   return (
     <main className="h-dvh overflow-hidden bg-gray-50 dark:bg-gray-950 flex flex-col transition-colors">
+      {isPremium && !genderPromptResolved && (
+        <GenderModal
+          onConfirm={({
+            gender: g,
+            lookingFor: lf,
+          }) => {
+            setGender(g);
+            setLookingFor(lf);
+            setGenderPromptResolved(true);
+          }}
+        />
+      )}
       {/* Header */}
 
       <header className="flex-none bg-white dark:bg-gray-900 shadow-sm py-3 px-4 md:py-4 md:px-6 flex items-center justify-between border-b border-gray-200 dark:border-gray-800">

@@ -8,6 +8,10 @@ export const {
   signIn,
   signOut,
 } = NextAuth({
+  pages: {
+    signIn: "/login",
+  },
+
   providers: [
     Google({
       clientId:

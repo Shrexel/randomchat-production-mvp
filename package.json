@@ -8,5 +8,8 @@
     "build:server": "npm --prefix apps/server run build",
     "db:migrate": "npm --prefix apps/server run db:migrate",
     "db:generate": "npm --prefix apps/server run db:generate"
+  },
+  "dependencies": {
+    "geoip-lite": "^2.0.3"
   }
 }
