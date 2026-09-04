@@ -654,7 +654,7 @@ export default function TextChatPage() {
   };
 
   return (
-    <main className="h-dvh overflow-hidden bg-gray-50 dark:bg-gray-950 flex flex-col transition-colors">
+    <main className="h-dvh h-screen overflow-hidden bg-gray-50 dark:bg-gray-950 flex flex-col transition-colors">
       {isPremium && !genderPromptResolved && (
         <GenderModal
           onConfirm={({
@@ -700,7 +700,7 @@ export default function TextChatPage() {
         </div>
       </header>
 
-      <div className="flex-1 min-h-0 max-w-4xl w-full mx-auto p-3 md:p-6 flex flex-col">
+      <div className="flex-1 min-h-0 h-full max-w-4xl w-full mx-auto p-3 md:p-6 flex flex-col">
         <div className="flex-none bg-white dark:bg-gray-900 w-full rounded-t-2xl border border-b-0 border-gray-200 dark:border-gray-800 px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <label className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer">
             <input
