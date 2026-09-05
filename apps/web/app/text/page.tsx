@@ -165,13 +165,14 @@ export default function TextChatPage() {
       "http://localhost:4000";
 
     const socket = io(
-      socketUrl,
-      {
-        auth: {
-          guestId,
-        },
-      }
-    );
+  socketUrl,
+  {
+    auth: {
+      guestId,
+    },
+    transports: ["websocket", "polling"],
+  }
+);
 
     socketRef.current = socket;
 
