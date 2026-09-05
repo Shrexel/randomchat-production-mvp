@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
-import { razorpay } from "@/lib/razorpay";
+import { getRazorpay } from "@/lib/razorpay";
 import { PLAN_CONFIG, PlanId } from "@/lib/plans";
 
 const bodySchema = z.object({
@@ -60,6 +60,7 @@ export async function POST(
   const plan = parsed.data.plan as PlanId;
   const config = PLAN_CONFIG[plan];
 
+  const razorpay = getRazorpay();
   const order = await razorpay.orders.create({
     amount: config.amountPaise,
     currency: "INR",
