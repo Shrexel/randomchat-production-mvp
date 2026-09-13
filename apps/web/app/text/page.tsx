@@ -662,7 +662,7 @@ export default function TextChatPage() {
   };
 
   return (
-    <main className="h-dvh h-screen overflow-hidden bg-gray-50 dark:bg-gray-950 flex flex-col transition-colors">
+    <main className="h-dvh overflow-hidden bg-gray-50 dark:bg-gray-950 flex flex-col transition-colors">
       {isPremium && !genderPromptResolved && (
         <GenderModal
           onConfirm={({
@@ -691,7 +691,7 @@ export default function TextChatPage() {
             width={32}
             height={32}
           />
-          RandomChat
+          <span className="hidden sm:inline">RandomChat</span>
         </button>
 
         <div className="flex items-center gap-3 md:gap-4">

@@ -29,7 +29,7 @@ export default function Home() {
             width={32}
             height={32}
           />
-          RandomChat
+          <span className="hidden sm:inline">RandomChat</span>
         </h1>
 
         <div className="flex items-center gap-3 md:gap-4">

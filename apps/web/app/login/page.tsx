@@ -107,7 +107,7 @@ export default function LoginPage() {
           className="flex items-center gap-2 text-2xl md:text-3xl font-extrabold text-blue-600 dark:text-blue-400"
         >
           <Image src="/logo.png" alt="RandomChat logo" width={32} height={32} />
-          RandomChat
+          <span className="hidden sm:inline">RandomChat</span>
         </a>
 
         <ThemeToggle />

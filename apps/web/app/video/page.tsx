@@ -148,6 +148,9 @@ export default function VideoChatPage() {
   const localVideoRef =
     useRef<HTMLVideoElement | null>(null);
 
+  const localVideoDesktopRef =
+    useRef<HTMLVideoElement | null>(null);
+
   const remoteVideoRef =
     useRef<HTMLVideoElement | null>(null);
 
@@ -332,6 +335,10 @@ export default function VideoChatPage() {
       localVideoRef.current.srcObject = null;
     }
 
+    if (localVideoDesktopRef.current) {
+      localVideoDesktopRef.current.srcObject = null;
+    }
+
     setCameraReady(false);
   }, []);
 
@@ -415,6 +422,16 @@ export default function VideoChatPage() {
 
       try {
         await localVideoRef.current.play();
+      } catch {
+        // Browser may require user interaction.
+      }
+    }
+
+    if (localVideoDesktopRef.current) {
+      localVideoDesktopRef.current.srcObject = stream;
+
+      try {
+        await localVideoDesktopRef.current.play();
       } catch {
         // Browser may require user interaction.
       }
@@ -1411,7 +1428,7 @@ export default function VideoChatPage() {
           className="flex items-center gap-2 text-2xl md:text-3xl font-extrabold text-blue-600 dark:text-blue-400 hover:opacity-80 transition"
         >
           <Image src="/logo.png" alt="RandomChat logo" width={32} height={32} />
-          RandomChat
+          <span className="hidden sm:inline">RandomChat</span>
         </button>
 
         <div className="flex items-center gap-3 md:gap-5">
@@ -1459,9 +1476,9 @@ export default function VideoChatPage() {
           {/* LEFT: camera panels — half the page width on desktop */}
 
           <div className="flex flex-col gap-3 md:gap-4 w-full md:w-1/2">
-            {/* Stranger (top) */}
+            {/* Stranger video — always visible. Contains mobile-only PiP overlay + controls */}
 
-            <div className="relative flex-1 aspect-video min-h-[200px] bg-black rounded-2xl overflow-hidden border border-gray-800">
+            <div className="relative w-full flex-1 min-h-[260px] md:min-h-[200px] bg-black rounded-2xl overflow-hidden border border-gray-800">
               <video
                 ref={remoteVideoRef}
                 autoPlay
@@ -1483,6 +1500,37 @@ export default function VideoChatPage() {
                 </div>
               )}
 
+              {/* Mobile-only floating local video (picture-in-picture) */}
+
+              <div className="md:hidden absolute top-2 right-2 w-20 h-28 sm:w-24 sm:h-32 rounded-lg overflow-hidden border-2 border-white/70 shadow-lg bg-black z-10">
+                <video
+                  ref={localVideoRef}
+                  autoPlay
+                  muted
+                  playsInline
+                  className="w-full h-full object-cover"
+                />
+
+                {!cameraReady && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-gray-950">
+                    <span className="text-xl">📷</span>
+                  </div>
+                )}
+
+                {!cameraEnabled && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-red-900/80 text-[9px] font-bold text-white text-center px-1">
+                    Camera Off
+                  </div>
+                )}
+              </div>
+
+              {matched && (
+                <div className="absolute top-2 left-2 flex items-center gap-1.5 bg-green-500/90 px-2 py-1 rounded-md text-[10px] font-bold text-white">
+                  <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                  LIVE
+                </div>
+              )}
+
               <div className="absolute bottom-2 left-2 flex items-center gap-1.5 bg-black/60 backdrop-blur-sm px-2.5 py-1 rounded-md text-xs font-semibold text-white">
                 <span className="text-blue-400">💬</span>
                 RandomChat
@@ -1492,24 +1540,47 @@ export default function VideoChatPage() {
                 onClick={() => setShowReport(true)}
                 disabled={!matched}
                 title="Report this user"
-                className="absolute bottom-2 right-2 w-7 h-7 flex items-center justify-center rounded-full bg-red-600/90 hover:bg-red-500 disabled:bg-gray-700 disabled:opacity-60 text-xs font-bold text-white transition"
+                className="absolute bottom-2 right-2 w-8 h-8 flex items-center justify-center rounded-full bg-red-600/90 hover:bg-red-500 disabled:bg-gray-700 disabled:opacity-60 text-xs font-bold text-white transition z-10"
               >
                 !
               </button>
 
-              {matched && (
-                <div className="absolute top-2 right-2 flex items-center gap-1.5 bg-green-500/90 px-2 py-1 rounded-md text-[10px] font-bold text-white">
-                  <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-                  LIVE
-                </div>
-              )}
+              {/* Mobile-only floating mic + camera toggle buttons, bottom center */}
+
+              <div className="md:hidden absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-2">
+                <button
+                  onClick={toggleMicrophone}
+                  disabled={!cameraReady}
+                  title={micEnabled ? "Mute microphone" : "Unmute microphone"}
+                  className={`w-9 h-9 flex items-center justify-center rounded-full text-white text-sm transition disabled:opacity-50 ${
+                    micEnabled
+                      ? "bg-black/60 hover:bg-black/80 backdrop-blur-sm"
+                      : "bg-red-600 hover:bg-red-700"
+                  }`}
+                >
+                  {micEnabled ? "🎙️" : "🔇"}
+                </button>
+
+                <button
+                  onClick={toggleCamera}
+                  disabled={!cameraReady}
+                  title={cameraEnabled ? "Turn camera off" : "Turn camera on"}
+                  className={`w-9 h-9 flex items-center justify-center rounded-full text-white text-sm transition disabled:opacity-50 ${
+                    cameraEnabled
+                      ? "bg-black/60 hover:bg-black/80 backdrop-blur-sm"
+                      : "bg-red-600 hover:bg-red-700"
+                  }`}
+                >
+                  {cameraEnabled ? "📷" : "🚫"}
+                </button>
+              </div>
             </div>
 
-            {/* Local (bottom) — mic/camera controls float here */}
+            {/* Desktop-only separate local camera panel below (original layout) */}
 
-            <div className="relative flex-1 aspect-video min-h-[160px] bg-black rounded-2xl overflow-hidden border border-gray-800">
+            <div className="hidden md:block relative flex-1 aspect-video min-h-[160px] bg-black rounded-2xl overflow-hidden border border-gray-800">
               <video
-                ref={localVideoRef}
+                ref={localVideoDesktopRef}
                 autoPlay
                 muted
                 playsInline
@@ -1538,7 +1609,7 @@ export default function VideoChatPage() {
                 </div>
               )}
 
-              {/* Floating mic + camera toggle buttons */}
+              {/* Desktop floating mic + camera toggle buttons */}
 
               <div className="absolute bottom-2 right-2 flex items-center gap-2">
                 <button
