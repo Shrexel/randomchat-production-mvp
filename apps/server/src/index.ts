@@ -507,6 +507,22 @@ async function findAndMatch(
   // Tell candidate
   // ----------------------------------------------------------
 
+    io.to(candidate.socketId).emit(
+    "matched",
+    {
+      partnerGuestId:
+        session.guestId,
+
+      partnerSocketId:
+        socketId,
+
+      partnerCountry:
+        session.country,
+
+      // Candidate waits for offer.
+      initiator: false,
+    }
+  );
   io.to(candidate.socketId).emit(
     "matched",
     {
@@ -525,6 +541,22 @@ async function findAndMatch(
   // Tell requester
   // ----------------------------------------------------------
 
+    io.to(socketId).emit(
+    "matched",
+    {
+      partnerGuestId:
+        candidate.guestId,
+
+      partnerSocketId:
+        candidate.socketId,
+
+      partnerCountry:
+        candidate.country,
+
+      // Requester creates WebRTC offer.
+      initiator: true,
+    }
+  );
   io.to(socketId).emit(
     "matched",
     {

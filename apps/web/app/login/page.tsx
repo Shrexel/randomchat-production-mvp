@@ -3,6 +3,7 @@
 export const dynamic = "force-dynamic";
 
 import { Suspense, useState } from "react";
+import Image from "next/image";
 import { signIn } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -22,8 +23,8 @@ function LoginCard() {
 
   return (
     <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-800 p-8 md:p-10 w-full max-w-sm text-center">
-      <div className="text-4xl mb-3">
-        💬
+      <div className="flex justify-center mb-3">
+        <Image src="/logo.png" alt="RandomChat logo" width={56} height={56} />
       </div>
 
       <h1 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">
@@ -103,8 +104,9 @@ export default function LoginPage() {
       <header className="flex-none py-4 px-4 md:px-6 flex items-center justify-between">
         <a
           href="/"
-          className="text-2xl md:text-3xl font-extrabold text-blue-600 dark:text-blue-400"
+          className="flex items-center gap-2 text-2xl md:text-3xl font-extrabold text-blue-600 dark:text-blue-400"
         >
+          <Image src="/logo.png" alt="RandomChat logo" width={32} height={32} />
           RandomChat
         </a>
 

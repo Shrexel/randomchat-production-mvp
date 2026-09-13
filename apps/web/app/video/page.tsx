@@ -10,6 +10,7 @@ import {
 } from "react";
 
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { io, Socket } from "socket.io-client";
 
 import { useSession } from "next-auth/react";
@@ -23,6 +24,7 @@ import GenderModal, {
 type MatchData = {
   partnerGuestId: string;
   partnerSocketId: string;
+  partnerCountry?: string | null;
   initiator: boolean;
 };
 
@@ -51,6 +53,64 @@ type SignalPayload = {
   signal?: SignalData;
   data?: SignalData;
 };
+
+/* -------------------------------------------------------
+   Country helpers
+------------------------------------------------------- */
+
+const COUNTRY_NAMES: Record<string, string> = {
+  US: "United States",
+  IN: "India",
+  GB: "United Kingdom",
+  CA: "Canada",
+  AU: "Australia",
+  DE: "Germany",
+  FR: "France",
+  BR: "Brazil",
+  JP: "Japan",
+  CN: "China",
+  RU: "Russia",
+  MX: "Mexico",
+  IT: "Italy",
+  ES: "Spain",
+  NL: "Netherlands",
+  PH: "Philippines",
+  PK: "Pakistan",
+  BD: "Bangladesh",
+  ID: "Indonesia",
+  NG: "Nigeria",
+  ZA: "South Africa",
+  KR: "South Korea",
+  TR: "Turkey",
+  SA: "Saudi Arabia",
+  AE: "United Arab Emirates",
+  SG: "Singapore",
+  MY: "Malaysia",
+  VN: "Vietnam",
+  TH: "Thailand",
+  EG: "Egypt",
+  AR: "Argentina",
+};
+
+function flagEmoji(code?: string | null) {
+  if (!code || code.length !== 2) return "🌍";
+
+  const points = [...code.toUpperCase()].map(
+    (c) => 127397 + c.charCodeAt(0)
+  );
+
+  return String.fromCodePoint(...points);
+}
+
+function countryLabel(code?: string | null) {
+  if (!code) return null;
+
+  const name =
+    COUNTRY_NAMES[code.toUpperCase()] ??
+    code.toUpperCase();
+
+  return `${name} ${flagEmoji(code)}`;
+}
 
 /* -------------------------------------------------------
    WebRTC configuration
@@ -117,6 +177,9 @@ export default function VideoChatPage() {
 
   const [matched, setMatched] =
     useState(false);
+
+  const [partnerCountry, setPartnerCountry] =
+    useState<string | null>(null);
 
   const [searching, setSearching] =
     useState(false);
@@ -531,7 +594,7 @@ export default function VideoChatPage() {
 
         if (state === "failed") {
           setStatus(
-            "Video connection failed. Try Next."
+            "Video connection failed. Try Skip."
           );
         }
 
@@ -625,10 +688,6 @@ export default function VideoChatPage() {
       }
 
       try {
-        /* -----------------------------------------------
-           OFFER
-        ------------------------------------------------ */
-
         if (signal.type === "offer") {
           let peer = peerRef.current;
 
@@ -645,12 +704,6 @@ export default function VideoChatPage() {
             new RTCSessionDescription(
               signal.sdp
             );
-
-          /*
-           * Perfect negotiation safety.
-           * If both sides accidentally create an offer,
-           * don't let the connection become corrupted.
-           */
 
           const offerCollision =
             description.type === "offer" &&
@@ -700,10 +753,6 @@ export default function VideoChatPage() {
           return;
         }
 
-        /* -----------------------------------------------
-           ANSWER
-        ------------------------------------------------ */
-
         if (signal.type === "answer") {
           const peer =
             peerRef.current;
@@ -729,10 +778,6 @@ export default function VideoChatPage() {
 
           return;
         }
-
-        /* -----------------------------------------------
-           ICE CANDIDATE
-        ------------------------------------------------ */
 
         if (signal.type === "candidate") {
           if (!signal.candidate) {
@@ -775,7 +820,7 @@ export default function VideoChatPage() {
         );
 
         setStatus(
-          "Unable to establish video connection. Try Next."
+          "Unable to establish video connection. Try Skip."
         );
       }
     },
@@ -791,6 +836,7 @@ export default function VideoChatPage() {
 
   const clearMatch = useCallback(() => {
     setMatched(false);
+    setPartnerCountry(null);
     setSearching(false);
     setRemoteVideoReady(false);
     setMessages([]);
@@ -844,8 +890,6 @@ export default function VideoChatPage() {
 
     socketRef.current = socket;
 
-    /* CONNECT */
-
     socket.on("connect", () => {
       setConnected(true);
 
@@ -853,8 +897,6 @@ export default function VideoChatPage() {
         "Connected. Click Start Video to find a stranger."
       );
     });
-
-    /* CONNECTION ERROR */
 
     socket.on(
       "connect_error",
@@ -872,8 +914,6 @@ export default function VideoChatPage() {
       }
     );
 
-    /* DISCONNECT */
-
     socket.on("disconnect", () => {
       setConnected(false);
       setSearching(false);
@@ -884,8 +924,6 @@ export default function VideoChatPage() {
         "Disconnected from the chat server."
       );
     });
-
-    /* ONLINE USERS */
 
     socket.on(
       "online-users",
@@ -899,12 +937,11 @@ export default function VideoChatPage() {
       }
     );
 
-    /* QUEUE */
-
     socket.on("queue-status", () => {
       closePeerConnection();
 
       setMatched(false);
+      setPartnerCountry(null);
       setSearching(true);
       setRemoteVideoReady(false);
 
@@ -915,8 +952,6 @@ export default function VideoChatPage() {
         "Waiting for a stranger to connect..."
       );
     });
-
-    /* MATCH */
 
     socket.on(
       "matched",
@@ -939,6 +974,10 @@ export default function VideoChatPage() {
 
         setMatched(true);
         setSearching(false);
+
+        setPartnerCountry(
+          data.partnerCountry ?? null
+        );
 
         setRemoteVideoReady(false);
         setMessages([]);
@@ -967,28 +1006,15 @@ export default function VideoChatPage() {
       }
     );
 
-    /* WEBRTC SIGNAL */
-
     socket.on(
       "signal",
       handleSignal
     );
 
-    /*
-     * Some server implementations may
-     * emit "webrtc-signal".
-     *
-     * Keeping this listener makes the
-     * client tolerant if your server uses
-     * that name.
-     */
-
     socket.on(
       "webrtc-signal",
       handleSignal
     );
-
-    /* CHAT MESSAGE */
 
     socket.on(
       "chat-message",
@@ -1005,16 +1031,12 @@ export default function VideoChatPage() {
       }
     );
 
-    /* TYPING INDICATOR */
-
     socket.on(
       "typing",
       (data: { isTyping: boolean }) => {
         setStrangerTyping(data.isTyping);
       }
     );
-
-    /* PARTNER LEFT */
 
     socket.on(
       "partner-left",
@@ -1027,8 +1049,6 @@ export default function VideoChatPage() {
       }
     );
 
-    /* PARTNER REPORTED */
-
     socket.on(
       "partner-reported",
       () => {
@@ -1040,8 +1060,6 @@ export default function VideoChatPage() {
       }
     );
 
-    /* PARTNER BLOCKED */
-
     socket.on(
       "partner-blocked",
       () => {
@@ -1052,8 +1070,6 @@ export default function VideoChatPage() {
         );
       }
     );
-
-    /* REPORT */
 
     socket.on(
       "report-submitted",
@@ -1067,21 +1083,6 @@ export default function VideoChatPage() {
         );
       }
     );
-
-    /* BLOCK */
-
-    socket.on(
-      "block-submitted",
-      () => {
-        clearMatch();
-
-        setStatus(
-          "User blocked. Finding a new stranger..."
-        );
-      }
-    );
-
-    /* SERVER ERROR */
 
     socket.on(
       "server-error",
@@ -1229,7 +1230,7 @@ export default function VideoChatPage() {
   };
 
   /* -------------------------------------------------------
-     Next stranger
+     Skip to next stranger
   ------------------------------------------------------- */
 
   const nextVideoChat = async () => {
@@ -1256,6 +1257,7 @@ export default function VideoChatPage() {
     partnerGuestIdRef.current = null;
 
     setMatched(false);
+    setPartnerCountry(null);
     setRemoteVideoReady(false);
     setSearching(true);
 
@@ -1334,46 +1336,6 @@ export default function VideoChatPage() {
   };
 
   /* -------------------------------------------------------
-     Block user
-  ------------------------------------------------------- */
-
-  const blockUser = () => {
-    const socket =
-      socketRef.current;
-
-    const partnerGuestId =
-      partnerGuestIdRef.current;
-
-    if (
-      !socket?.connected ||
-      !matched ||
-      !partnerGuestId
-    ) {
-      return;
-    }
-
-    const confirmed =
-      window.confirm(
-        "Are you sure you want to block this user?"
-      );
-
-    if (!confirmed) {
-      return;
-    }
-
-    socket.emit("block", {
-      blockedGuestId:
-        partnerGuestId,
-    });
-
-    clearMatch();
-
-    setStatus(
-      "User blocked. Finding a new stranger..."
-    );
-  };
-
-  /* -------------------------------------------------------
      Report user
   ------------------------------------------------------- */
 
@@ -1413,7 +1375,7 @@ export default function VideoChatPage() {
   ------------------------------------------------------- */
 
   return (
-    <main className="h-dvh overflow-hidden bg-gray-950 text-white flex flex-col">
+    <main className="h-dvh overflow-hidden bg-white dark:bg-gray-950 text-gray-900 dark:text-white flex flex-col transition-colors">
       {/* Premium gender modal */}
 
       {isPremium &&
@@ -1441,18 +1403,19 @@ export default function VideoChatPage() {
 
       {/* Header */}
 
-      <header className="flex-none bg-gray-900 border-b border-gray-800 px-4 py-3 md:px-6 md:py-4 flex items-center justify-between">
+      <header className="flex-none bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 px-4 py-3 md:px-6 md:py-4 flex items-center justify-between">
         <button
           onClick={() =>
             router.push("/")
           }
-          className="text-2xl md:text-3xl font-extrabold text-blue-500 hover:text-blue-400 transition"
+          className="flex items-center gap-2 text-2xl md:text-3xl font-extrabold text-blue-600 dark:text-blue-400 hover:opacity-80 transition"
         >
+          <Image src="/logo.png" alt="RandomChat logo" width={32} height={32} />
           RandomChat
         </button>
 
         <div className="flex items-center gap-3 md:gap-5">
-          <div className="hidden sm:flex items-center gap-2 text-sm font-semibold text-green-400">
+          <div className="hidden sm:flex items-center gap-2 text-sm font-semibold text-green-700 dark:text-green-400">
             <span className="relative flex h-3 w-3">
               <span className="absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75 animate-ping" />
 
@@ -1471,17 +1434,34 @@ export default function VideoChatPage() {
       {/* Main */}
 
       <div className="flex-1 w-full p-3 md:p-6 flex flex-col min-h-0 gap-3">
-        <p className="flex-none text-center text-sm text-gray-400">
+        <p className="flex-none text-center text-xs text-gray-500 dark:text-gray-400">
           {status}
+          {"  ·  Server: "}
+          {connected ? (
+            <span className="text-green-600 dark:text-green-400 font-bold">
+              Connected
+            </span>
+          ) : (
+            <span className="text-red-500 font-bold">
+              Disconnected
+            </span>
+          )}
         </p>
 
-        <div className="flex-1 min-h-0 flex flex-col md:flex-row gap-3 md:gap-4">
-          {/* LEFT: stacked video panels */}
+        {matched && partnerCountry && (
+          <p className="flex-none text-center text-sm font-medium text-green-600 dark:text-green-400">
+            You&apos;re now talking to a random stranger{" "}
+            {countryLabel(partnerCountry)}
+          </p>
+        )}
 
-          <div className="flex flex-col gap-3 md:gap-4 w-full md:w-[360px] md:flex-none">
+        <div className="flex-1 min-h-0 flex flex-col md:flex-row gap-3 md:gap-4">
+          {/* LEFT: camera panels — half the page width on desktop */}
+
+          <div className="flex flex-col gap-3 md:gap-4 w-full md:w-1/2">
             {/* Stranger (top) */}
 
-            <div className="relative flex-1 min-h-[200px] bg-black rounded-2xl overflow-hidden border border-gray-800">
+            <div className="relative flex-1 aspect-video min-h-[200px] bg-black rounded-2xl overflow-hidden border border-gray-800">
               <video
                 ref={remoteVideoRef}
                 autoPlay
@@ -1503,7 +1483,7 @@ export default function VideoChatPage() {
                 </div>
               )}
 
-              <div className="absolute bottom-2 left-2 flex items-center gap-1.5 bg-black/60 backdrop-blur-sm px-2.5 py-1 rounded-md text-xs font-semibold">
+              <div className="absolute bottom-2 left-2 flex items-center gap-1.5 bg-black/60 backdrop-blur-sm px-2.5 py-1 rounded-md text-xs font-semibold text-white">
                 <span className="text-blue-400">💬</span>
                 RandomChat
               </div>
@@ -1512,22 +1492,22 @@ export default function VideoChatPage() {
                 onClick={() => setShowReport(true)}
                 disabled={!matched}
                 title="Report this user"
-                className="absolute bottom-2 right-2 w-7 h-7 flex items-center justify-center rounded-full bg-red-600/90 hover:bg-red-500 disabled:bg-gray-700 disabled:opacity-60 text-xs font-bold transition"
+                className="absolute bottom-2 right-2 w-7 h-7 flex items-center justify-center rounded-full bg-red-600/90 hover:bg-red-500 disabled:bg-gray-700 disabled:opacity-60 text-xs font-bold text-white transition"
               >
                 !
               </button>
 
               {matched && (
-                <div className="absolute top-2 right-2 flex items-center gap-1.5 bg-green-500/90 px-2 py-1 rounded-md text-[10px] font-bold">
+                <div className="absolute top-2 right-2 flex items-center gap-1.5 bg-green-500/90 px-2 py-1 rounded-md text-[10px] font-bold text-white">
                   <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
                   LIVE
                 </div>
               )}
             </div>
 
-            {/* Local (bottom) */}
+            {/* Local (bottom) — mic/camera controls float here */}
 
-            <div className="relative flex-1 min-h-[160px] bg-black rounded-2xl overflow-hidden border border-gray-800">
+            <div className="relative flex-1 aspect-video min-h-[160px] bg-black rounded-2xl overflow-hidden border border-gray-800">
               <video
                 ref={localVideoRef}
                 autoPlay
@@ -1548,28 +1528,58 @@ export default function VideoChatPage() {
                 </div>
               )}
 
-              <div className="absolute bottom-2 left-2 bg-black/60 backdrop-blur-sm px-2.5 py-1 rounded-md text-xs font-semibold">
+              <div className="absolute bottom-2 left-2 bg-black/60 backdrop-blur-sm px-2.5 py-1 rounded-md text-xs font-semibold text-white">
                 You
               </div>
 
               {!cameraEnabled && (
-                <div className="absolute top-2 right-2 bg-red-500/90 px-2 py-1 rounded-md text-[10px] font-bold">
+                <div className="absolute top-2 right-2 bg-red-500/90 px-2 py-1 rounded-md text-[10px] font-bold text-white">
                   Camera Off
                 </div>
               )}
+
+              {/* Floating mic + camera toggle buttons */}
+
+              <div className="absolute bottom-2 right-2 flex items-center gap-2">
+                <button
+                  onClick={toggleMicrophone}
+                  disabled={!cameraReady}
+                  title={micEnabled ? "Mute microphone" : "Unmute microphone"}
+                  className={`w-9 h-9 flex items-center justify-center rounded-full text-white text-sm transition disabled:opacity-50 ${
+                    micEnabled
+                      ? "bg-black/60 hover:bg-black/80 backdrop-blur-sm"
+                      : "bg-red-600 hover:bg-red-700"
+                  }`}
+                >
+                  {micEnabled ? "🎙️" : "🔇"}
+                </button>
+
+                <button
+                  onClick={toggleCamera}
+                  disabled={!cameraReady}
+                  title={cameraEnabled ? "Turn camera off" : "Turn camera on"}
+                  className={`w-9 h-9 flex items-center justify-center rounded-full text-white text-sm transition disabled:opacity-50 ${
+                    cameraEnabled
+                      ? "bg-black/60 hover:bg-black/80 backdrop-blur-sm"
+                      : "bg-red-600 hover:bg-red-700"
+                  }`}
+                >
+                  {cameraEnabled ? "📷" : "🚫"}
+                </button>
+              </div>
             </div>
           </div>
 
-          {/* RIGHT: rules panel (before match) or live chat (after match) */}
+          {/* RIGHT: rules panel (before match) or live chat (after match) — other half */}
 
-          <div className="flex-1 min-h-0 bg-gray-900 border border-gray-800 rounded-2xl p-4 md:p-5 flex flex-col">
+          <div className="flex-1 min-h-0 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-4 md:p-5 flex flex-col">
             {!matched ? (
               <div className="flex-1 flex flex-col">
-                <h2 className="text-lg md:text-xl font-bold mb-4">
+                <h2 className="text-lg md:text-xl font-bold mb-4 text-gray-900 dark:text-white">
                   Press Start to begin video chat.
                 </h2>
 
-                <label className="inline-flex items-center gap-2 text-sm font-semibold bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 w-fit mb-5 cursor-pointer">
+                <label className="inline-flex items-center gap-2 text-sm font-semibold bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 text-gray-800 dark:text-gray-100 rounded-lg px-3 py-2 w-fit mb-5 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={sameCountry}
@@ -1583,8 +1593,8 @@ export default function VideoChatPage() {
                   🌍 Same country
                 </label>
 
-                <ul className="space-y-2 text-sm text-gray-300">
-                  <li className="text-red-400 font-bold">
+                <ul className="space-y-2 text-sm text-gray-700 dark:text-gray-300">
+                  <li className="text-red-500 dark:text-red-400 font-bold">
                     You must be 18+
                   </li>
                   <li>
@@ -1594,7 +1604,10 @@ export default function VideoChatPage() {
                   <li>
                     Do not ask for gender. This is not a dating site
                   </li>
-                  <li className="text-red-400 font-bold">
+                  <li>
+                    Reports help moderators keep RandomChat safe
+                  </li>
+                  <li className="text-red-500 dark:text-red-400 font-bold">
                     Violators will be banned
                   </li>
                 </ul>
@@ -1603,7 +1616,7 @@ export default function VideoChatPage() {
               <div className="flex-1 min-h-0 flex flex-col">
                 <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-1">
                   {messages.length === 0 ? (
-                    <p className="text-gray-500 text-sm text-center mt-6">
+                    <p className="text-gray-500 dark:text-gray-500 text-sm text-center mt-6">
                       Say hi to your stranger!
                     </p>
                   ) : (
@@ -1620,7 +1633,7 @@ export default function VideoChatPage() {
                           className={
                             item.sender === "me"
                               ? "inline-block bg-blue-600 text-white px-3 py-2 rounded-xl max-w-[85%] break-words text-sm text-left"
-                              : "inline-block bg-gray-800 text-gray-100 px-3 py-2 rounded-xl max-w-[85%] break-words text-sm"
+                              : "inline-block bg-gray-200 dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-2 rounded-xl max-w-[85%] break-words text-sm"
                           }
                         >
                           {item.text}
@@ -1634,7 +1647,7 @@ export default function VideoChatPage() {
 
                 <div className="flex-none h-5">
                   {strangerTyping && (
-                    <p className="text-xs text-gray-400 italic animate-pulse">
+                    <p className="text-xs text-gray-500 dark:text-gray-400 italic animate-pulse">
                       Stranger is typing...
                     </p>
                   )}
@@ -1642,26 +1655,22 @@ export default function VideoChatPage() {
               </div>
             )}
 
-            {/* Start/Next + message input bar */}
+            {/* Single Start/Skip + message input bar */}
 
             <div className="flex-none pt-3 flex gap-2 items-stretch">
-              {!matched ? (
-                <button
-                  onClick={startVideoChat}
-                  disabled={!connected || searching}
-                  className="flex-none px-5 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:text-gray-500 font-bold transition"
-                >
-                  {searching ? "Searching..." : "▶ Start"}
-                </button>
-              ) : (
-                <button
-                  onClick={nextVideoChat}
-                  disabled={!connected}
-                  className="flex-none px-5 py-3 rounded-xl bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-500 font-bold transition"
-                >
-                  ⏭ Next
-                </button>
-              )}
+              <button
+                onClick={
+                  matched ? nextVideoChat : startVideoChat
+                }
+                disabled={!connected || searching}
+                className="flex-none px-5 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 dark:disabled:bg-gray-700 disabled:text-gray-500 text-white font-bold transition"
+              >
+                {matched
+                  ? "⏭ Skip"
+                  : searching
+                  ? "Searching..."
+                  : "▶ Start"}
+              </button>
 
               <input
                 type="text"
@@ -1683,75 +1692,18 @@ export default function VideoChatPage() {
                     ? "Type a message..."
                     : "Connect with a stranger first..."
                 }
-                className="flex-1 min-w-0 bg-gray-800 border border-gray-700 rounded-xl px-4 text-sm text-white outline-none focus:border-blue-500 disabled:opacity-60"
+                className="flex-1 min-w-0 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl px-4 text-sm text-gray-900 dark:text-white outline-none focus:border-blue-500 disabled:opacity-60"
               />
 
               <button
                 onClick={sendMessage}
                 disabled={!matched || !messageInput.trim()}
-                className="flex-none px-4 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:text-gray-500 font-bold transition"
+                className="flex-none px-4 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 dark:disabled:bg-gray-700 disabled:text-gray-500 text-white font-bold transition"
               >
                 ➤
               </button>
             </div>
           </div>
-        </div>
-
-        {/* Secondary controls */}
-
-        <div className="flex-none flex flex-wrap items-center justify-center gap-2 md:gap-3">
-          <button
-            onClick={toggleMicrophone}
-            disabled={!cameraReady}
-            className={`px-4 py-2 rounded-xl text-sm font-bold transition ${
-              micEnabled
-                ? "bg-gray-700 hover:bg-gray-600"
-                : "bg-red-600 hover:bg-red-700"
-            }`}
-          >
-            {micEnabled ? "🎙️ Mute" : "🔇 Unmute"}
-          </button>
-
-          <button
-            onClick={toggleCamera}
-            disabled={!cameraReady}
-            className={`px-4 py-2 rounded-xl text-sm font-bold transition ${
-              cameraEnabled
-                ? "bg-gray-700 hover:bg-gray-600"
-                : "bg-red-600 hover:bg-red-700"
-            }`}
-          >
-            {cameraEnabled ? "📷 Camera" : "🚫 Camera"}
-          </button>
-
-          <button
-            onClick={blockUser}
-            disabled={!matched}
-            className="px-4 py-2 rounded-xl bg-orange-600 hover:bg-orange-700 disabled:bg-gray-800 disabled:text-gray-500 text-sm font-bold transition"
-          >
-            🚫 Block
-          </button>
-
-          <button
-            onClick={() => setShowReport(true)}
-            disabled={!matched}
-            className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 disabled:bg-gray-800 disabled:text-gray-500 text-sm font-bold transition"
-          >
-            ⚠️ Report
-          </button>
-
-          <span className="text-xs text-gray-500 ml-1">
-            Server:{" "}
-            {connected ? (
-              <span className="text-green-400 font-bold">
-                Connected
-              </span>
-            ) : (
-              <span className="text-red-400 font-bold">
-                Disconnected
-              </span>
-            )}
-          </span>
         </div>
       </div>
 
@@ -1759,12 +1711,12 @@ export default function VideoChatPage() {
 
       {showReport && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl p-6">
-            <h2 className="text-xl font-bold mb-2">
+          <div className="w-full max-w-md bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl shadow-2xl p-6">
+            <h2 className="text-xl font-bold mb-2 text-gray-900 dark:text-white">
               Report Stranger
             </h2>
 
-            <p className="text-sm text-gray-400 mb-5">
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
               Select the reason for your
               report.
             </p>
@@ -1777,7 +1729,7 @@ export default function VideoChatPage() {
                     .value as ReportReason
                 )
               }
-              className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white mb-5 outline-none focus:border-blue-500"
+              className="w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl px-4 py-3 text-gray-900 dark:text-white mb-5 outline-none focus:border-blue-500"
             >
               <option value="HARASSMENT">
                 Harassment
@@ -1809,7 +1761,7 @@ export default function VideoChatPage() {
                 onClick={() =>
                   setShowReport(false)
                 }
-                className="flex-1 py-3 rounded-xl bg-gray-700 hover:bg-gray-600 font-bold"
+                className="flex-1 py-3 rounded-xl bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-900 dark:text-white font-bold"
               >
                 Cancel
               </button>
@@ -1818,7 +1770,7 @@ export default function VideoChatPage() {
                 onClick={
                   submitReport
                 }
-                className="flex-1 py-3 rounded-xl bg-red-600 hover:bg-red-700 font-bold"
+                className="flex-1 py-3 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold"
               >
                 Submit Report
               </button>

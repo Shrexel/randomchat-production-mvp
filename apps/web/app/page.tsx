@@ -2,6 +2,7 @@
 
 export const dynamic = "force-dynamic";
 
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import ThemeToggle from "@/components/ThemeToggle";
 import AuthMenu from "@/components/AuthMenu";
@@ -21,7 +22,13 @@ export default function Home() {
     <main className="min-h-dvh bg-gray-50 dark:bg-gray-950 flex flex-col font-sans text-gray-800 dark:text-gray-100 transition-colors">
       {/* Header */}
       <header className="bg-white dark:bg-gray-900 shadow-sm py-3 px-4 md:py-4 md:px-6 flex items-center justify-between border-b border-gray-200 dark:border-gray-800">
-        <h1 className="text-2xl md:text-3xl font-extrabold tracking-tighter text-blue-600 dark:text-blue-400">
+        <h1 className="flex items-center gap-2 text-2xl md:text-3xl font-extrabold tracking-tighter text-blue-600 dark:text-blue-400">
+          <Image
+            src="/logo.png"
+            alt="RandomChat logo"
+            width={32}
+            height={32}
+          />
           RandomChat
         </h1>
 
@@ -30,7 +37,6 @@ export default function Home() {
           <div className="flex items-center gap-2">
             <span className="relative flex h-3 w-3">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-
               <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
             </span>
 
@@ -40,7 +46,6 @@ export default function Home() {
           </div>
 
           <ThemeToggle />
-
           <AuthMenu />
         </div>
       </header>
@@ -67,11 +72,8 @@ export default function Home() {
 
             <ul className="text-sm text-orange-800 dark:text-orange-200 space-y-2 list-disc ml-5 font-medium">
               <li>Be respectful and kind to others.</li>
-
               <li>No inappropriate behavior, nudity, or harassment.</li>
-
               <li>Do not share your personal information.</li>
-
               <li>
                 <strong>You must be 18+ to use this service.</strong>
               </li>
@@ -93,24 +95,20 @@ export default function Home() {
               className="flex-1 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-lg md:text-xl font-bold py-6 md:py-8 px-4 rounded-2xl shadow-lg transition-all transform hover:-translate-y-1 hover:shadow-xl flex flex-col items-center gap-2 focus:outline-none focus:ring-4 focus:ring-blue-300 dark:focus:ring-blue-800"
             >
               <span className="text-3xl">💬</span>
-
               <span>Text Chat</span>
-
               <span className="text-sm font-medium text-blue-100">
                 Start chatting
               </span>
             </button>
 
-            {/* Video Chat Button - UNLOCKED */}
+            {/* Video Chat Button */}
             <button
               type="button"
               onClick={startVideoChat}
               className="flex-1 bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white text-lg md:text-xl font-bold py-6 md:py-8 px-4 rounded-2xl shadow-lg transition-all transform hover:-translate-y-1 hover:shadow-xl flex flex-col items-center gap-2 cursor-pointer focus:outline-none focus:ring-4 focus:ring-purple-300 dark:focus:ring-purple-900"
             >
               <span className="text-3xl">📹</span>
-
               <span>Video Chat</span>
-
               <span className="text-sm font-medium text-purple-100">
                 Start video chat
               </span>

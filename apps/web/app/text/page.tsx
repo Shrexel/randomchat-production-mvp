@@ -2,6 +2,7 @@
 
 export const dynamic = "force-dynamic";
 
+import Image from "next/image";
 import {
   useEffect,
   useRef,
@@ -30,6 +31,7 @@ type Message = {
 type MatchData = {
   partnerGuestId: string;
   partnerSocketId: string;
+  partnerCountry?: string | null;
   initiator: boolean;
 };
 
@@ -40,6 +42,64 @@ type ReportReason =
   | "SCAM"
   | "HATE"
   | "OTHER";
+
+/* -------------------------------------------------------
+   Country helpers
+------------------------------------------------------- */
+
+const COUNTRY_NAMES: Record<string, string> = {
+  US: "United States",
+  IN: "India",
+  GB: "United Kingdom",
+  CA: "Canada",
+  AU: "Australia",
+  DE: "Germany",
+  FR: "France",
+  BR: "Brazil",
+  JP: "Japan",
+  CN: "China",
+  RU: "Russia",
+  MX: "Mexico",
+  IT: "Italy",
+  ES: "Spain",
+  NL: "Netherlands",
+  PH: "Philippines",
+  PK: "Pakistan",
+  BD: "Bangladesh",
+  ID: "Indonesia",
+  NG: "Nigeria",
+  ZA: "South Africa",
+  KR: "South Korea",
+  TR: "Turkey",
+  SA: "Saudi Arabia",
+  AE: "United Arab Emirates",
+  SG: "Singapore",
+  MY: "Malaysia",
+  VN: "Vietnam",
+  TH: "Thailand",
+  EG: "Egypt",
+  AR: "Argentina",
+};
+
+function flagEmoji(code?: string | null) {
+  if (!code || code.length !== 2) return "🌍";
+
+  const points = [...code.toUpperCase()].map(
+    (c) => 127397 + c.charCodeAt(0)
+  );
+
+  return String.fromCodePoint(...points);
+}
+
+function countryLabel(code?: string | null) {
+  if (!code) return null;
+
+  const name =
+    COUNTRY_NAMES[code.toUpperCase()] ??
+    code.toUpperCase();
+
+  return `${name} ${flagEmoji(code)}`;
+}
 
 export default function TextChatPage() {
   const router = useRouter();
@@ -54,9 +114,7 @@ export default function TextChatPage() {
     useRef<string | null>(null);
 
   const typingTimeoutRef =
-    useRef<ReturnType<
-      typeof setTimeout
-    > | null>(null);
+    useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const messagesEndRef =
     useRef<HTMLDivElement | null>(null);
@@ -68,7 +126,7 @@ export default function TextChatPage() {
     useState(0);
 
   const [status, setStatus] = useState(
-    "Click Start Chat to find a stranger..."
+    "Click Start to find a stranger..."
   );
 
   const [message, setMessage] =
@@ -79,6 +137,9 @@ export default function TextChatPage() {
 
   const [matched, setMatched] =
     useState(false);
+
+  const [partnerCountry, setPartnerCountry] =
+    useState<string | null>(null);
 
   const [strangerTyping, setStrangerTyping] =
     useState(false);
@@ -115,8 +176,6 @@ export default function TextChatPage() {
 
   useEffect(() => {
     if (authStatus !== "authenticated") {
-      // Guests and signed-out users skip
-      // the gender prompt entirely.
       setGenderPromptResolved(true);
       return;
     }
@@ -128,8 +187,6 @@ export default function TextChatPage() {
           Boolean(data.isPremium)
         );
 
-        // Non-premium signed-in users
-        // also chat fully at random.
         setGenderPromptResolved(
           !data.isPremium
         );
@@ -164,15 +221,12 @@ export default function TextChatPage() {
       process.env.NEXT_PUBLIC_SOCKET_URL ||
       "http://localhost:4000";
 
-    const socket = io(
-  socketUrl,
-  {
-    auth: {
-      guestId,
-    },
-    transports: ["websocket", "polling"],
-  }
-);
+    const socket = io(socketUrl, {
+      auth: {
+        guestId,
+      },
+      transports: ["websocket", "polling"],
+    });
 
     socketRef.current = socket;
 
@@ -180,7 +234,7 @@ export default function TextChatPage() {
       setConnected(true);
 
       setStatus(
-        "Connected. Click Start Chat to find a stranger..."
+        "Connected. Click Start to find a stranger..."
       );
     });
 
@@ -197,6 +251,8 @@ export default function TextChatPage() {
 
       setMatched(false);
 
+      setPartnerCountry(null);
+
       setStrangerTyping(false);
 
       partnerSocketIdRef.current = null;
@@ -210,10 +266,6 @@ export default function TextChatPage() {
       );
     });
 
-    // =========================
-    // ONLINE USERS
-    // =========================
-
     socket.on(
       "online-users",
       (data: { count: number }) => {
@@ -223,6 +275,8 @@ export default function TextChatPage() {
 
     socket.on("queue-status", () => {
       setMatched(false);
+
+      setPartnerCountry(null);
 
       setStrangerTyping(false);
 
@@ -245,6 +299,10 @@ export default function TextChatPage() {
           data.partnerGuestId;
 
         setMatched(true);
+
+        setPartnerCountry(
+          data.partnerCountry ?? null
+        );
 
         setMessages([]);
 
@@ -271,10 +329,6 @@ export default function TextChatPage() {
       }
     );
 
-    // =========================
-    // STRANGER TYPING
-    // =========================
-
     socket.on(
       "typing",
       (data: { isTyping: boolean }) => {
@@ -286,6 +340,8 @@ export default function TextChatPage() {
 
     socket.on("partner-left", () => {
       setMatched(false);
+
+      setPartnerCountry(null);
 
       setStrangerTyping(false);
 
@@ -304,6 +360,8 @@ export default function TextChatPage() {
       "partner-reported",
       () => {
         setMatched(false);
+
+        setPartnerCountry(null);
 
         setStrangerTyping(false);
 
@@ -325,6 +383,8 @@ export default function TextChatPage() {
       "partner-blocked",
       () => {
         setMatched(false);
+
+        setPartnerCountry(null);
 
         setStrangerTyping(false);
 
@@ -353,19 +413,6 @@ export default function TextChatPage() {
 
         setStatus(
           "Report submitted. Finding a new stranger..."
-        );
-      }
-    );
-
-    socket.on(
-      "block-submitted",
-      () => {
-        setMessages([]);
-
-        setStrangerTyping(false);
-
-        setStatus(
-          "User blocked. Finding a new stranger..."
         );
       }
     );
@@ -419,6 +466,8 @@ export default function TextChatPage() {
 
     setMatched(false);
 
+    setPartnerCountry(null);
+
     setStrangerTyping(false);
 
     partnerSocketIdRef.current = null;
@@ -434,10 +483,6 @@ export default function TextChatPage() {
       buildMatchPayload()
     );
   };
-
-  // =========================
-  // SEND TYPING STATUS
-  // =========================
 
   const handleMessageChange = (
     value: string
@@ -537,19 +582,6 @@ export default function TextChatPage() {
       return;
     }
 
-    if (!matched) {
-      setStatus(
-        "Looking for a stranger..."
-      );
-
-      socketRef.current.emit(
-        "find-partner",
-        buildMatchPayload()
-      );
-
-      return;
-    }
-
     if (
       partnerSocketIdRef.current
     ) {
@@ -570,6 +602,8 @@ export default function TextChatPage() {
 
     setMatched(false);
 
+    setPartnerCountry(null);
+
     setStrangerTyping(false);
 
     partnerSocketIdRef.current = null;
@@ -583,35 +617,6 @@ export default function TextChatPage() {
     socketRef.current.emit(
       "next",
       buildMatchPayload()
-    );
-  };
-
-  const blockUser = () => {
-    if (
-      !socketRef.current?.connected ||
-      !matched ||
-      !partnerGuestIdRef.current
-    ) {
-      return;
-    }
-
-    const confirmed =
-      window.confirm(
-        "Are you sure you want to block this user? You will not be matched with them again."
-      );
-
-    if (!confirmed) return;
-
-    setMatched(false);
-
-    setStrangerTyping(false);
-
-    socketRef.current.emit(
-      "block",
-      {
-        blockedGuestId:
-          partnerGuestIdRef.current,
-      }
     );
   };
 
@@ -638,6 +643,8 @@ export default function TextChatPage() {
     setShowReport(false);
 
     setMatched(false);
+
+    setPartnerCountry(null);
 
     setStrangerTyping(false);
 
@@ -668,6 +675,7 @@ export default function TextChatPage() {
           }}
         />
       )}
+
       {/* Header */}
 
       <header className="flex-none bg-white dark:bg-gray-900 shadow-sm py-3 px-4 md:py-4 md:px-6 flex items-center justify-between border-b border-gray-200 dark:border-gray-800">
@@ -675,8 +683,14 @@ export default function TextChatPage() {
           onClick={() =>
             router.push("/")
           }
-          className="text-2xl md:text-3xl font-extrabold text-blue-600 dark:text-blue-400 hover:opacity-80 transition-opacity"
+          className="flex items-center gap-2 text-2xl md:text-3xl font-extrabold text-blue-600 dark:text-blue-400 hover:opacity-80 transition-opacity"
         >
+          <Image
+            src="/logo.png"
+            alt="RandomChat logo"
+            width={32}
+            height={32}
+          />
           RandomChat
         </button>
 
@@ -701,7 +715,7 @@ export default function TextChatPage() {
         </div>
       </header>
 
-      <div className="flex-1 min-h-0 h-full max-w-4xl w-full mx-auto p-3 md:p-6 flex flex-col">
+      <div className="flex-1 min-h-0 h-full w-full mx-auto p-3 md:p-6 flex flex-col">
         <div className="flex-none bg-white dark:bg-gray-900 w-full rounded-t-2xl border border-b-0 border-gray-200 dark:border-gray-800 px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <label className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer">
             <input
@@ -725,42 +739,82 @@ export default function TextChatPage() {
         <div className="bg-white dark:bg-gray-900 w-full rounded-b-2xl shadow-sm border border-gray-200 dark:border-gray-800 p-4 md:p-6 flex flex-col flex-1 min-h-0">
           {/* Chat messages */}
 
-          <div className="flex-1 min-h-0 border border-gray-300 dark:border-gray-700 rounded-xl p-4 mb-3 overflow-y-auto space-y-3 bg-gray-50 dark:bg-gray-950">
-            {messages.length === 0 ? (
-              <p className="text-gray-500 dark:text-gray-400 text-center">
-                {status}
-              </p>
+          <div className="relative flex-1 min-h-0 border border-gray-300 dark:border-gray-700 rounded-xl p-4 mb-3 overflow-y-auto bg-gray-50 dark:bg-gray-950">
+            {/* Report icon, top of chat box */}
+
+            <button
+              onClick={() =>
+                setShowReport(true)
+              }
+              disabled={!matched}
+              title="Report this user"
+              className="absolute top-2 right-2 w-7 h-7 flex items-center justify-center rounded-full bg-red-600/90 hover:bg-red-500 disabled:bg-gray-400 dark:disabled:bg-gray-700 disabled:opacity-60 text-xs font-bold text-white transition z-10"
+            >
+              !
+            </button>
+
+            {!matched ? (
+              <div className="space-y-2 text-sm text-gray-700 dark:text-gray-300 pr-8">
+                <p className="text-red-500 dark:text-red-400 font-bold">
+                  You must be 18+
+                </p>
+                <p>
+                  No explicit content, hate speech, or harassment
+                </p>
+                <p>Do not share your personal information</p>
+                <p>
+                  Reports help moderators keep RandomChat safe
+                </p>
+                <p className="text-red-500 dark:text-red-400 font-bold">
+                  Violators will be banned
+                </p>
+              </div>
             ) : (
-              messages.map(
-                (item, index) => (
-                  <div
-                    key={index}
-                    className={
-                      item.sender === "me"
-                        ? "text-right"
-                        : "text-left"
-                    }
-                  >
-                    <span
+              <div className="space-y-3">
+                {partnerCountry && (
+                  <p className="text-center text-sm font-medium text-green-600 dark:text-green-400">
+                    You&apos;re now talking to a random stranger{" "}
+                    {countryLabel(partnerCountry)}
+                  </p>
+                )}
+
+                {messages.map(
+                  (item, index) => (
+                    <div
+                      key={index}
                       className={
                         item.sender === "me"
-                          ? "inline-block bg-blue-600 text-white px-4 py-2 rounded-xl max-w-[80%] break-words text-left"
-                          : "inline-block bg-gray-200 dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-4 py-2 rounded-xl max-w-[80%] break-words"
+                          ? "text-right"
+                          : "text-left"
                       }
                     >
-                      {item.text}
-                    </span>
-                  </div>
-                )
-              )
-            )}
+                      <span
+                        className={
+                          item.sender === "me"
+                            ? "inline-block bg-blue-600 text-white px-4 py-2 rounded-xl max-w-[80%] break-words text-left"
+                            : "inline-block bg-gray-200 dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-4 py-2 rounded-xl max-w-[80%] break-words"
+                        }
+                      >
+                        {item.text}
+                      </span>
+                    </div>
+                  )
+                )}
 
-            <div ref={messagesEndRef} />
+                <div ref={messagesEndRef} />
+              </div>
+            )}
           </div>
+
+          {/* Status line */}
+
+          <p className="flex-none text-xs text-gray-500 dark:text-gray-400 text-center mb-2">
+            {status}
+          </p>
 
           {/* Typing indicator */}
 
-          <div className="flex-none h-6 mb-2">
+          <div className="flex-none h-5 mb-1">
             {matched &&
               strangerTyping && (
                 <p className="text-sm text-gray-500 dark:text-gray-400 italic animate-pulse">
@@ -769,9 +823,19 @@ export default function TextChatPage() {
               )}
           </div>
 
-          {/* Message input */}
+          {/* Single row: Start/Skip + message input + send */}
 
-          <div className="flex-none flex gap-2 md:gap-3 w-full mb-4">
+          <div className="flex-none flex gap-2 md:gap-3 w-full">
+            <button
+              onClick={
+                matched ? nextChat : startChat
+              }
+              disabled={!connected}
+              className="flex-none bg-blue-600 text-white px-5 md:px-6 py-3 rounded-xl font-bold hover:bg-blue-700 disabled:bg-gray-400"
+            >
+              {matched ? "Skip" : "Start"}
+            </button>
+
             <input
               type="text"
               value={message}
@@ -805,54 +869,13 @@ export default function TextChatPage() {
                 !message.trim() ||
                 !partnerSocketIdRef.current
               }
-              className="bg-blue-600 text-white px-5 md:px-6 py-3 rounded-xl font-bold hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+              className="flex-none bg-blue-600 text-white px-5 md:px-6 py-3 rounded-xl font-bold hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
             >
               Send
             </button>
           </div>
 
-          {/* Buttons */}
-
-          <div className="flex-none flex flex-wrap gap-3">
-            <button
-              onClick={startChat}
-              disabled={
-                !connected ||
-                matched
-              }
-              className="bg-blue-600 text-white px-5 py-3 rounded-xl font-bold disabled:bg-gray-400"
-            >
-              Start Chat
-            </button>
-
-            <button
-              onClick={nextChat}
-              disabled={!connected}
-              className="bg-gray-800 text-white px-5 py-3 rounded-xl font-bold hover:bg-gray-900 disabled:bg-gray-400"
-            >
-              Next
-            </button>
-
-            <button
-              onClick={blockUser}
-              disabled={!matched}
-              className="bg-orange-500 text-white px-5 py-3 rounded-xl font-bold hover:bg-orange-600 disabled:bg-gray-300"
-            >
-              Block
-            </button>
-
-            <button
-              onClick={() =>
-                setShowReport(true)
-              }
-              disabled={!matched}
-              className="bg-red-500 text-white px-5 py-3 rounded-xl font-bold hover:bg-red-600 disabled:bg-gray-300"
-            >
-              Report
-            </button>
-          </div>
-
-          <p className="flex-none text-sm text-gray-500 dark:text-gray-400 mt-4">
+          <p className="flex-none text-sm text-gray-500 dark:text-gray-400 mt-3">
             Server:{" "}
 
             {connected ? (
