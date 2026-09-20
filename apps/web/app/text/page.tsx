@@ -715,180 +715,182 @@ export default function TextChatPage() {
         </div>
       </header>
 
+      {/* Main content: one unified box, matching reference layout */}
+
       <div className="flex-1 min-h-0 h-full w-full mx-auto p-3 md:p-6 flex flex-col">
-        <div className="flex-none bg-white dark:bg-gray-900 w-full rounded-t-2xl border border-b-0 border-gray-200 dark:border-gray-800 px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-          <label className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={sameCountry}
-              onChange={(e) =>
-                setSameCountry(
-                  e.target.checked
-                )
-              }
-              className="w-4 h-4 accent-blue-600"
-            />
-            🌍 Match with my country only
-          </label>
+        <div className="relative bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-800 p-4 md:p-6 flex flex-col flex-1 min-h-0">
+          {/* Report icon, always top-right of the box */}
 
-          <p className="text-xs text-gray-400 dark:text-gray-500">
-            Applies to your next search
-          </p>
-        </div>
+          <button
+            onClick={() =>
+              setShowReport(true)
+            }
+            disabled={!matched}
+            title="Report this user"
+            className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-full bg-red-600/90 hover:bg-red-500 disabled:bg-gray-400 dark:disabled:bg-gray-700 disabled:opacity-60 text-xs font-bold text-white transition z-10"
+          >
+            !
+          </button>
 
-        <div className="bg-white dark:bg-gray-900 w-full rounded-b-2xl shadow-sm border border-gray-200 dark:border-gray-800 p-4 md:p-6 flex flex-col flex-1 min-h-0">
-          {/* Chat messages */}
+          {!matched ? (
+            /* Pre-match: heading, same-country toggle, rules — all inside the box */
 
-          <div className="relative flex-1 min-h-0 border border-gray-300 dark:border-gray-700 rounded-xl p-4 mb-3 overflow-y-auto bg-gray-50 dark:bg-gray-950">
-            {/* Report icon, top of chat box */}
+            <div className="flex-1 min-h-0 overflow-y-auto pr-10">
+              <h2 className="text-lg md:text-xl font-bold text-gray-900 dark:text-gray-100 mb-4">
+                Press Start to begin text chat.
+              </h2>
 
-            <button
-              onClick={() =>
-                setShowReport(true)
-              }
-              disabled={!matched}
-              title="Report this user"
-              className="absolute top-2 right-2 w-7 h-7 flex items-center justify-center rounded-full bg-red-600/90 hover:bg-red-500 disabled:bg-gray-400 dark:disabled:bg-gray-700 disabled:opacity-60 text-xs font-bold text-white transition z-10"
-            >
-              !
-            </button>
+              <label className="inline-flex items-center gap-2 text-sm font-semibold bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 text-gray-800 dark:text-gray-100 rounded-lg px-3 py-2 w-fit mb-5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={sameCountry}
+                  onChange={(e) =>
+                    setSameCountry(
+                      e.target.checked
+                    )
+                  }
+                  className="w-4 h-4 accent-blue-600"
+                />
+                🌍 Same country
+              </label>
 
-            {!matched ? (
-              <div className="space-y-2 text-sm text-gray-700 dark:text-gray-300 pr-8">
-                <p className="text-red-500 dark:text-red-400 font-bold">
+              <ul className="space-y-2 text-sm text-gray-700 dark:text-gray-300">
+                <li className="text-red-500 dark:text-red-400 font-bold">
                   You must be 18+
-                </p>
-                <p>
+                </li>
+                <li>
                   No explicit content, hate speech, or harassment
-                </p>
-                <p>Do not share your personal information</p>
-                <p>
+                </li>
+                <li>Do not share your personal information</li>
+                <li>
                   Reports help moderators keep RandomChat safe
-                </p>
-                <p className="text-red-500 dark:text-red-400 font-bold">
+                </li>
+                <li className="text-red-500 dark:text-red-400 font-bold">
                   Violators will be banned
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {partnerCountry && (
-                  <p className="text-center text-sm font-medium text-green-600 dark:text-green-400">
-                    You&apos;re now talking to a random stranger{" "}
-                    {countryLabel(partnerCountry)}
-                  </p>
-                )}
+                </li>
+              </ul>
+            </div>
+          ) : (
+            /* Matched: chat messages fill the same box */
 
-                {messages.map(
-                  (item, index) => (
-                    <div
-                      key={index}
-                      className={
-                        item.sender === "me"
-                          ? "text-right"
-                          : "text-left"
-                      }
-                    >
-                      <span
-                        className={
-                          item.sender === "me"
-                            ? "inline-block bg-blue-600 text-white px-4 py-2 rounded-xl max-w-[80%] break-words text-left"
-                            : "inline-block bg-gray-200 dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-4 py-2 rounded-xl max-w-[80%] break-words"
-                        }
-                      >
-                        {item.text}
-                      </span>
-                    </div>
-                  )
-                )}
-
-                <div ref={messagesEndRef} />
-              </div>
-            )}
-          </div>
-
-          {/* Status line */}
-
-          <p className="flex-none text-xs text-gray-500 dark:text-gray-400 text-center mb-2">
-            {status}
-          </p>
-
-          {/* Typing indicator */}
-
-          <div className="flex-none h-5 mb-1">
-            {matched &&
-              strangerTyping && (
-                <p className="text-sm text-gray-500 dark:text-gray-400 italic animate-pulse">
-                  Stranger is typing...
+            <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-10">
+              {partnerCountry && (
+                <p className="text-center text-sm font-medium text-green-600 dark:text-green-400">
+                  You&apos;re now talking to a random stranger{" "}
+                  {countryLabel(partnerCountry)}
                 </p>
               )}
-          </div>
 
-          {/* Single row: Start/Skip + message input + send */}
-
-          <div className="flex-none flex gap-2 md:gap-3 w-full">
-            <button
-              onClick={
-                matched ? nextChat : startChat
-              }
-              disabled={!connected}
-              className="flex-none bg-blue-600 text-white px-5 md:px-6 py-3 rounded-xl font-bold hover:bg-blue-700 disabled:bg-gray-400"
-            >
-              {matched ? "Skip" : "Start"}
-            </button>
-
-            <input
-              type="text"
-              value={message}
-              disabled={!matched}
-              onChange={(e) =>
-                handleMessageChange(
-                  e.target.value
+              {messages.map(
+                (item, index) => (
+                  <div
+                    key={index}
+                    className={
+                      item.sender === "me"
+                        ? "text-right"
+                        : "text-left"
+                    }
+                  >
+                    <span
+                      className={
+                        item.sender === "me"
+                          ? "inline-block bg-blue-600 text-white px-4 py-2 rounded-xl max-w-[80%] break-words text-left"
+                          : "inline-block bg-gray-200 dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-4 py-2 rounded-xl max-w-[80%] break-words"
+                      }
+                    >
+                      {item.text}
+                    </span>
+                  </div>
                 )
-              }
-              onKeyDown={(e) => {
-                if (
-                  e.key === "Enter"
-                ) {
-                  e.preventDefault();
+              )}
 
-                  sendMessage();
-                }
-              }}
-              placeholder={
-                matched
-                  ? "Type a message..."
-                  : "Connect with a stranger first..."
-              }
-              className="flex-1 min-w-0 border-2 border-gray-400 dark:border-gray-700 bg-white dark:bg-gray-800 text-black dark:text-white rounded-xl px-4 py-3 outline-none focus:border-blue-600 disabled:bg-gray-200 dark:disabled:bg-gray-900 disabled:text-gray-500"
-            />
-
-            <button
-              onClick={sendMessage}
-              disabled={
-                !matched ||
-                !message.trim() ||
-                !partnerSocketIdRef.current
-              }
-              className="flex-none bg-blue-600 text-white px-5 md:px-6 py-3 rounded-xl font-bold hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
-            >
-              Send
-            </button>
-          </div>
-
-          <p className="flex-none text-sm text-gray-500 dark:text-gray-400 mt-3">
-            Server:{" "}
-
-            {connected ? (
-              <span className="text-green-600 dark:text-green-400 font-bold">
-                Connected
-              </span>
-            ) : (
-              <span className="text-red-500 font-bold">
-                Disconnected
-              </span>
-            )}
-          </p>
+              <div ref={messagesEndRef} />
+            </div>
+          )}
         </div>
+
+        {/* Status line */}
+
+        <p className="flex-none text-xs text-gray-500 dark:text-gray-400 text-center mt-2">
+          {status}
+        </p>
+
+        {/* Typing indicator */}
+
+        <div className="flex-none h-5 mb-1">
+          {matched &&
+            strangerTyping && (
+              <p className="text-sm text-gray-500 dark:text-gray-400 italic animate-pulse">
+                Stranger is typing...
+              </p>
+            )}
+        </div>
+
+        {/* Single row: Start/Skip + message input + send */}
+
+        <div className="flex-none flex gap-2 md:gap-3 w-full">
+          <button
+            onClick={
+              matched ? nextChat : startChat
+            }
+            disabled={!connected}
+            className="flex-none bg-blue-600 text-white px-5 md:px-6 py-3 rounded-xl font-bold hover:bg-blue-700 disabled:bg-gray-400"
+          >
+            {matched ? "Skip" : "Start"}
+          </button>
+
+          <input
+            type="text"
+            value={message}
+            disabled={!matched}
+            onChange={(e) =>
+              handleMessageChange(
+                e.target.value
+              )
+            }
+            onKeyDown={(e) => {
+              if (
+                e.key === "Enter"
+              ) {
+                e.preventDefault();
+
+                sendMessage();
+              }
+            }}
+            placeholder={
+              matched
+                ? "Type a message..."
+                : "Connect with a stranger first..."
+            }
+            className="flex-1 min-w-0 border-2 border-gray-400 dark:border-gray-700 bg-white dark:bg-gray-800 text-black dark:text-white rounded-xl px-4 py-3 outline-none focus:border-blue-600 disabled:bg-gray-200 dark:disabled:bg-gray-900 disabled:text-gray-500"
+          />
+
+          <button
+            onClick={sendMessage}
+            disabled={
+              !matched ||
+              !message.trim() ||
+              !partnerSocketIdRef.current
+            }
+            className="flex-none bg-blue-600 text-white px-5 md:px-6 py-3 rounded-xl font-bold hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+          >
+            Send
+          </button>
+        </div>
+
+        <p className="flex-none text-sm text-gray-500 dark:text-gray-400 mt-3">
+          Server:{" "}
+
+          {connected ? (
+            <span className="text-green-600 dark:text-green-400 font-bold">
+              Connected
+            </span>
+          ) : (
+            <span className="text-red-500 font-bold">
+              Disconnected
+            </span>
+          )}
+        </p>
       </div>
 
       {/* Report Modal */}
