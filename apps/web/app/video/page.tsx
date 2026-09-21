@@ -1489,7 +1489,7 @@ export default function VideoChatPage() {
         <div className="flex-1 min-h-0 flex flex-col md:flex-row gap-3 md:gap-4">
           {/* LEFT: single unified box holding both video slots */}
 
-          <div className="flex flex-col w-full md:w-1/2 bg-black rounded-2xl overflow-hidden border border-gray-800">
+          <div className="flex-1 min-h-0 flex flex-col w-full md:w-1/2 bg-black rounded-2xl overflow-hidden border border-gray-800">
             {/* Stranger video slot */}
 
             <div className="relative flex-1 md:flex-[3] min-h-[220px] md:min-h-[180px] bg-black">
@@ -1612,7 +1612,7 @@ export default function VideoChatPage() {
 
             {/* Desktop-only local camera slot */}
 
-            <div className="hidden md:block relative flex-[2] min-h-[140px] bg-black">
+            <div className="hidden md:block relative aspect-square min-h-[140px] bg-black mx-auto w-full max-w-[280px]">
               <video
                 ref={localVideoDesktopRef}
                 autoPlay
