@@ -217,43 +217,22 @@ const webRTCSignalSchema = z.object({
 
   signal: z
     .object({
-      type: z
-        .enum([
-          "offer",
-          "answer",
-          "pranswer",
-          "rollback",
-        ])
-        .optional(),
+      type: z.enum(["offer", "answer", "candidate"]),
 
       sdp: z
-        .string()
-        .max(20_000)
+        .object({
+          type: z.enum(["offer", "answer", "pranswer", "rollback"]),
+          sdp: z.string().max(20_000),
+        })
         .optional(),
 
       candidate: z
-        .string()
-        .max(5_000)
-        .optional(),
-
-      sdpMid: z
-        .string()
-        .max(100)
-        .nullable()
-        .optional(),
-
-      sdpMLineIndex: z
-        .number()
-        .int()
-        .min(0)
-        .max(100)
-        .nullable()
-        .optional(),
-
-      usernameFragment: z
-        .string()
-        .max(200)
-        .nullable()
+        .object({
+          candidate: z.string().max(2_000).optional(),
+          sdpMid: z.string().max(100).nullable().optional(),
+          sdpMLineIndex: z.number().int().min(0).max(100).nullable().optional(),
+          usernameFragment: z.string().max(200).nullable().optional(),
+        })
         .optional(),
     })
     .passthrough(),
