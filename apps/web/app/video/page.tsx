@@ -116,16 +116,30 @@ function countryLabel(code?: string | null) {
    WebRTC configuration
 ------------------------------------------------------- */
 
-const ICE_SERVERS: RTCConfiguration = {
-  iceServers: [
+function getIceServers(): RTCConfiguration {
+  const iceServers: RTCIceServer[] = [
     {
       urls: [
         "stun:stun.l.google.com:19302",
         "stun:stun1.l.google.com:19302",
       ],
     },
-  ],
-};
+  ];
+
+  const turnUrl = process.env.NEXT_PUBLIC_TURN_URL;
+  const turnUsername = process.env.NEXT_PUBLIC_TURN_USERNAME;
+  const turnCredential = process.env.NEXT_PUBLIC_TURN_CREDENTIAL;
+
+  if (turnUrl && turnUsername && turnCredential) {
+    iceServers.push({
+      urls: turnUrl,
+      username: turnUsername,
+      credential: turnCredential,
+    });
+  }
+
+  return { iceServers };
+}
 
 /* -------------------------------------------------------
    Page
@@ -505,7 +519,7 @@ export default function VideoChatPage() {
         await getLocalMedia();
 
       const peer =
-        new RTCPeerConnection(ICE_SERVERS);
+        new RTCPeerConnection(getIceServers());
 
       peerRef.current = peer;
 
@@ -1473,12 +1487,12 @@ export default function VideoChatPage() {
         )}
 
         <div className="flex-1 min-h-0 flex flex-col md:flex-row gap-3 md:gap-4">
-          {/* LEFT: camera panels — half the page width on desktop */}
+          {/* LEFT: single unified box holding both video slots */}
 
-          <div className="flex flex-col gap-3 md:gap-4 w-full md:w-1/2">
-            {/* Stranger video — always visible. Contains mobile-only PiP overlay + controls */}
+          <div className="flex flex-col w-full md:w-1/2 bg-black rounded-2xl overflow-hidden border border-gray-800">
+            {/* Stranger video slot */}
 
-            <div className="relative w-full flex-1 min-h-[260px] md:min-h-[200px] bg-black rounded-2xl overflow-hidden border border-gray-800">
+            <div className="relative flex-1 md:flex-[3] min-h-[220px] md:min-h-[180px] bg-black">
               <video
                 ref={remoteVideoRef}
                 autoPlay
@@ -1497,6 +1511,13 @@ export default function VideoChatPage() {
                       ? "Waiting for a stranger..."
                       : "Stranger video will appear here"}
                   </p>
+                </div>
+              )}
+
+              {matched && (
+                <div className="absolute top-2 left-2 flex items-center gap-1.5 bg-green-500/90 px-2 py-1 rounded-md text-[10px] font-bold text-white">
+                  <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                  LIVE
                 </div>
               )}
 
@@ -1524,23 +1545,18 @@ export default function VideoChatPage() {
                 )}
               </div>
 
-              {matched && (
-                <div className="absolute top-2 left-2 flex items-center gap-1.5 bg-green-500/90 px-2 py-1 rounded-md text-[10px] font-bold text-white">
-                  <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-                  LIVE
-                </div>
-              )}
+              {/* Mobile-only label + report, overlaid on the video since there's no separator bar on mobile */}
 
-              <div className="absolute bottom-2 left-2 flex items-center gap-1.5 bg-black/60 backdrop-blur-sm px-2.5 py-1 rounded-md text-xs font-semibold text-white">
+              <div className="md:hidden absolute bottom-2 left-2 flex items-center gap-1.5 bg-black/60 backdrop-blur-sm px-2.5 py-1 rounded-md text-xs font-semibold text-white">
                 <span className="text-blue-400">💬</span>
-                RandomChat
+                Stranger
               </div>
 
               <button
                 onClick={() => setShowReport(true)}
                 disabled={!matched}
                 title="Report this user"
-                className="absolute bottom-2 right-2 w-8 h-8 flex items-center justify-center rounded-full bg-red-600/90 hover:bg-red-500 disabled:bg-gray-700 disabled:opacity-60 text-xs font-bold text-white transition z-10"
+                className="md:hidden absolute bottom-2 right-2 w-8 h-8 flex items-center justify-center rounded-full bg-red-600/90 hover:bg-red-500 disabled:bg-gray-700 disabled:opacity-60 text-xs font-bold text-white transition z-10"
               >
                 !
               </button>
@@ -1576,9 +1592,27 @@ export default function VideoChatPage() {
               </div>
             </div>
 
-            {/* Desktop-only separate local camera panel below (original layout) */}
+            {/* Desktop-only separator bar: label on left, report icon on right — sits between the two slots */}
 
-            <div className="hidden md:block relative flex-1 aspect-video min-h-[160px] bg-black rounded-2xl overflow-hidden border border-gray-800">
+            <div className="hidden md:flex flex-none items-center justify-between px-3 py-2 bg-black border-t border-gray-800">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-white">
+                <span className="text-blue-400">💬</span>
+                Stranger
+              </div>
+
+              <button
+                onClick={() => setShowReport(true)}
+                disabled={!matched}
+                title="Report this user"
+                className="w-7 h-7 flex items-center justify-center rounded-full bg-red-600/90 hover:bg-red-500 disabled:bg-gray-700 disabled:opacity-60 text-xs font-bold text-white transition"
+              >
+                !
+              </button>
+            </div>
+
+            {/* Desktop-only local camera slot */}
+
+            <div className="hidden md:block relative flex-[2] min-h-[140px] bg-black">
               <video
                 ref={localVideoDesktopRef}
                 autoPlay
