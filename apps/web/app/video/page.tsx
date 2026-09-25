@@ -1487,25 +1487,24 @@ export default function VideoChatPage() {
         )}
 
         <div className="flex-1 min-h-0 flex flex-col md:flex-row gap-3 md:gap-4">
-          {/* LEFT: single unified box holding both video slots */}
-
-          <div className="flex-1 min-h-0 flex flex-col w-full md:w-1/2 bg-black rounded-2xl overflow-hidden border border-gray-800">
-            {/* Stranger video slot */}
-
-            <div className="relative flex-1 md:flex-[3] min-h-[220px] md:min-h-[180px] bg-black">
+          {/*
+            DESKTOP: camera column on the left, stacked like Umingle.
+            Each camera is a 4:3 landscape frame. The column itself never
+            scrolls; the page remains fixed to the viewport.
+          */}
+          <div className="flex-none w-full md:w-[27%] min-h-0 grid grid-rows-2 gap-2 md:gap-3">
+            {/* Stranger camera */}
+            <div className="relative min-h-0 w-full aspect-[4/3] md:aspect-auto bg-black rounded-xl overflow-hidden border border-gray-800">
               <video
                 ref={remoteVideoRef}
                 autoPlay
                 playsInline
-                className="w-full h-full object-cover"
+                className="absolute inset-0 w-full h-full object-cover"
               />
 
               {!remoteVideoReady && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-950">
-                  <div className="text-4xl mb-3">
-                    👤
-                  </div>
-
+                  <div className="text-4xl mb-3">👤</div>
                   <p className="text-gray-400 text-xs text-center px-4">
                     {searching
                       ? "Waiting for a stranger..."
@@ -1521,8 +1520,7 @@ export default function VideoChatPage() {
                 </div>
               )}
 
-              {/* Mobile-only floating local video (picture-in-picture) */}
-
+              {/* Mobile PiP — intentionally unchanged */}
               <div className="md:hidden absolute top-2 right-2 w-20 h-28 sm:w-24 sm:h-32 rounded-lg overflow-hidden border-2 border-white/70 shadow-lg bg-black z-10">
                 <video
                   ref={localVideoRef}
@@ -1545,8 +1543,7 @@ export default function VideoChatPage() {
                 )}
               </div>
 
-              {/* Mobile-only label + report, overlaid on the video since there's no separator bar on mobile */}
-
+              {/* Mobile controls */}
               <div className="md:hidden absolute bottom-2 left-2 flex items-center gap-1.5 bg-black/60 backdrop-blur-sm px-2.5 py-1 rounded-md text-xs font-semibold text-white">
                 <span className="text-blue-400">💬</span>
                 Stranger
@@ -1560,8 +1557,6 @@ export default function VideoChatPage() {
               >
                 !
               </button>
-
-              {/* Mobile-only floating mic + camera toggle buttons, bottom center */}
 
               <div className="md:hidden absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-2">
                 <button
@@ -1592,44 +1587,20 @@ export default function VideoChatPage() {
               </div>
             </div>
 
-            {/* Desktop-only separator bar: label on left, report icon on right — sits between the two slots */}
-
-            <div className="hidden md:flex flex-none items-center justify-between px-3 py-2 bg-black border-t border-gray-800">
-              <div className="flex items-center gap-1.5 text-xs font-semibold text-white">
-                <span className="text-blue-400">💬</span>
-                Stranger
-              </div>
-
-              <button
-                onClick={() => setShowReport(true)}
-                disabled={!matched}
-                title="Report this user"
-                className="w-7 h-7 flex items-center justify-center rounded-full bg-red-600/90 hover:bg-red-500 disabled:bg-gray-700 disabled:opacity-60 text-xs font-bold text-white transition"
-              >
-                !
-              </button>
-            </div>
-
-            {/* Desktop-only local camera slot */}
-
-            <div className="hidden md:block relative aspect-square min-h-[140px] bg-black mx-auto w-full max-w-[280px]">
+            {/* Desktop local camera — stacked underneath stranger */}
+            <div className="hidden md:block relative min-h-0 w-full bg-black rounded-xl overflow-hidden border border-gray-800">
               <video
                 ref={localVideoDesktopRef}
                 autoPlay
                 muted
                 playsInline
-                className="w-full h-full object-cover"
+                className="absolute inset-0 w-full h-full object-cover"
               />
 
               {!cameraReady && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-950">
-                  <div className="text-4xl mb-3">
-                    📷
-                  </div>
-
-                  <p className="text-gray-400 text-xs">
-                    Your camera preview
-                  </p>
+                  <div className="text-4xl mb-3">📷</div>
+                  <p className="text-gray-400 text-xs">Your camera preview</p>
                 </div>
               )}
 
@@ -1642,8 +1613,6 @@ export default function VideoChatPage() {
                   Camera Off
                 </div>
               )}
-
-              {/* Desktop floating mic + camera toggle buttons */}
 
               <div className="absolute bottom-2 right-2 flex items-center gap-2">
                 <button
@@ -1675,9 +1644,8 @@ export default function VideoChatPage() {
             </div>
           </div>
 
-          {/* RIGHT: rules panel (before match) or live chat (after match) — other half */}
-
-          <div className="flex-1 min-h-0 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-4 md:p-5 flex flex-col">
+          {/* RIGHT: rules before match, live chat after match */}
+          <div className="flex-1 min-w-0 min-h-0 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-4 md:p-5 flex flex-col">
             {!matched ? (
               <div className="flex-1 flex flex-col">
                 <h2 className="text-lg md:text-xl font-bold mb-4 text-gray-900 dark:text-white">
@@ -1688,33 +1656,19 @@ export default function VideoChatPage() {
                   <input
                     type="checkbox"
                     checked={sameCountry}
-                    onChange={(e) =>
-                      setSameCountry(
-                        e.target.checked
-                      )
-                    }
+                    onChange={(e) => setSameCountry(e.target.checked)}
                     className="w-4 h-4 accent-orange-500"
                   />
                   🌍 Same country
                 </label>
 
                 <ul className="space-y-2 text-sm text-gray-700 dark:text-gray-300">
-                  <li className="text-red-500 dark:text-red-400 font-bold">
-                    You must be 18+
-                  </li>
-                  <li>
-                    No explicit content, hate speech, or harassment
-                  </li>
+                  <li className="text-red-500 dark:text-red-400 font-bold">You must be 18+</li>
+                  <li>No explicit content, hate speech, or harassment</li>
                   <li>Your camera must show you, live</li>
-                  <li>
-                    Do not ask for gender. This is not a dating site
-                  </li>
-                  <li>
-                    Reports help moderators keep RandomChat safe
-                  </li>
-                  <li className="text-red-500 dark:text-red-400 font-bold">
-                    Violators will be banned
-                  </li>
+                  <li>Do not ask for gender. This is not a dating site</li>
+                  <li>Reports help moderators keep RandomChat safe</li>
+                  <li className="text-red-500 dark:text-red-400 font-bold">Violators will be banned</li>
                 </ul>
               </div>
             ) : (
@@ -1726,14 +1680,7 @@ export default function VideoChatPage() {
                     </p>
                   ) : (
                     messages.map((item, index) => (
-                      <div
-                        key={index}
-                        className={
-                          item.sender === "me"
-                            ? "text-right"
-                            : "text-left"
-                        }
-                      >
+                      <div key={index} className={item.sender === "me" ? "text-right" : "text-left"}>
                         <span
                           className={
                             item.sender === "me"
@@ -1746,7 +1693,6 @@ export default function VideoChatPage() {
                       </div>
                     ))
                   )}
-
                   <div ref={messagesEndRef} />
                 </div>
 
@@ -1760,43 +1706,28 @@ export default function VideoChatPage() {
               </div>
             )}
 
-            {/* Single Start/Skip + message input bar */}
-
+            {/* Start/Skip + message input */}
             <div className="flex-none pt-3 flex gap-2 items-stretch">
               <button
-                onClick={
-                  matched ? nextVideoChat : startVideoChat
-                }
+                onClick={matched ? nextVideoChat : startVideoChat}
                 disabled={!connected || searching}
                 className="flex-none px-5 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 dark:disabled:bg-gray-700 disabled:text-gray-500 text-white font-bold transition"
               >
-                {matched
-                  ? "⏭ Skip"
-                  : searching
-                  ? "Searching..."
-                  : "▶ Start"}
+                {matched ? "⏭ Skip" : searching ? "Searching..." : "▶ Start"}
               </button>
 
               <input
                 type="text"
                 value={messageInput}
                 disabled={!matched}
-                onChange={(e) =>
-                  handleMessageInputChange(
-                    e.target.value
-                  )
-                }
+                onChange={(e) => handleMessageInputChange(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     e.preventDefault();
                     sendMessage();
                   }
                 }}
-                placeholder={
-                  matched
-                    ? "Type a message..."
-                    : "Connect with a stranger first..."
-                }
+                placeholder={matched ? "Type a message..." : "Connect with a stranger first..."}
                 className="flex-1 min-w-0 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl px-4 text-sm text-gray-900 dark:text-white outline-none focus:border-blue-500 disabled:opacity-60"
               />
 
